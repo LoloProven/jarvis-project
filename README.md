@@ -6,7 +6,7 @@ The project is built around the idea of comfortable wearable hardware + intellig
 
 It's designed as a modular system: we're starting by tackling calendar organization, but the architecture is already set up to add new features over time (habit tracking, music, notes, nutrition, etc.).
 
-##🛠️ Hardware Specifications
+🛠️ Hardware Specifications
 
 Device: Waveshare ESP32-S3 Touch AMOLED 2.06" (Smartwatch-style).
 MCU: ESP32-S3R8 Dual-Core Xtensa LX7 at 240 MHz (Wi-Fi 2.4 GHz + BT 5 LE).
