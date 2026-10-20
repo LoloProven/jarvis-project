@@ -39,6 +39,18 @@ int DisplayUI::tempHour = 18;
 int DisplayUI::tempMinute = 0;
 unsigned long DisplayUI::lastClockUpdate = 0;
 
+// --- ENCABEZADO DEL DASHBOARD (franja de 50 px, todo centrado en y=32) ---
+static const int HEADER_H     = 50;
+static const int CLOCK_W      = 5 * 18;                                  // "HH:MM" con setTextSize(3)
+static const int CLOCK_X      = LCD_WIDTH - SAFE_MARGIN_X - CLOCK_W;     // 265
+static const int CLOCK_Y      = SAFE_MARGIN_TOP;                         // 20..44
+static const int NAME_X       = SAFE_MARGIN_X;
+static const int NAME_Y       = SAFE_MARGIN_TOP + 4;                     // 24..40
+static const int WIFI_BOX_X   = 124;                                     // después de un nombre de 5 letras
+static const int WIFI_BOX_W   = CLOCK_X - 10 - WIFI_BOX_X;               // termina antes del fondo de la hora
+static const int WIFI_BOX_Y   = SAFE_MARGIN_TOP - 1;
+static const int WIFI_BOX_H   = 26;
+
 static Profile profiles[4] = {
     {"Lolo",   RGB565_RED,    35,  30, 150, 150},
     {"Santi",  RGB565_BLUE,  225,  30, 150, 150},
@@ -93,10 +105,10 @@ void DisplayUI::drawProfileMenu() {
 
 void DisplayUI::drawHeaderClockOnly() {
     if (activeProfile < 0 || PowerManager::isScreenOff()) return;
-    gfx->fillRect(250, 0, 160, 50, profiles[activeProfile].color);
+    gfx->fillRect(CLOCK_X - 5, 0, LCD_WIDTH - (CLOCK_X - 5), HEADER_H, profiles[activeProfile].color);
     gfx->setTextColor(RGB565_WHITE);
     gfx->setTextSize(3);
-    gfx->setCursor(270, 12);
+    gfx->setCursor(CLOCK_X, CLOCK_Y);
     gfx->print(getFormattedTime());
 }
 
@@ -105,15 +117,15 @@ void DisplayUI::drawDashboard() {
     gfx->fillScreen(RGB565_BLACK);
     bool online = (WiFi.status() == WL_CONNECTED);
 
-    gfx->fillRect(0, 0, 410, 50, profiles[activeProfile].color);
+    gfx->fillRect(0, 0, LCD_WIDTH, HEADER_H, profiles[activeProfile].color);
     gfx->setTextColor(RGB565_WHITE);
     gfx->setTextSize(2);
-    gfx->setCursor(15, 15);
+    gfx->setCursor(NAME_X, NAME_Y);
     gfx->printf("%s", profiles[activeProfile].name);
 
-    gfx->fillRoundRect(100, 10, 150, 30, 6, online ? RGB565_GREEN : RGB565_RED);
+    gfx->fillRoundRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, 6, online ? RGB565_GREEN : RGB565_RED);
     gfx->setTextColor(RGB565_WHITE);
-    gfx->setCursor(110, 18);
+    gfx->setCursor(WIFI_BOX_X + 6, WIFI_BOX_Y + 9);
     gfx->setTextSize(1);
     if (online) {
         String ssid = WiFi.SSID();

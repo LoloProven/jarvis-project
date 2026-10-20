@@ -81,4 +81,11 @@ struct Profile {
 // Los RGB565_* vienen de Arduino_GFX; acá solo los que la librería no trae.
 #define DARK_GREEN        0x03E0
 
+// --- MARGEN SEGURO ---
+// Las esquinas redondeadas del AMOLED tapan ~50 px a cada lado en la parte
+// de arriba (y abajo). Lo que se dibuje cerca de los bordes tiene que quedar
+// dentro de estos márgenes.
+#define SAFE_MARGIN_X    55
+#define SAFE_MARGIN_TOP  20
+
 #endif
