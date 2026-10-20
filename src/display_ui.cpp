@@ -129,6 +129,37 @@ void DisplayUI::drawHeaderClockOnly() {
     gfx->print(getFormattedTime());
 }
 
+// --- CRONÓMETRO: zona de los dígitos dentro de la caja del dashboard ---
+static const int CHRONO_Y      = 170;
+static const int CHRONO_H      = 40;                  // setTextSize(5): 8 px * 5
+static const int CHRONO_CHAR_W = 30;                  // 6 px * 5
+
+void DisplayUI::drawChronoDigits() {
+    unsigned long ms = AlarmManager::getChronoTime();
+    unsigned long totalSec = ms / 1000;
+    int seconds = totalSec % 60;
+    int minutes = (totalSec / 60) % 60;
+    unsigned long hours = totalSec / 3600;
+
+    // MM:SS durante la primera hora; después H:MM:SS en vez de volver a 00:00.
+    char buf[16];
+    if (hours > 0) snprintf(buf, sizeof(buf), "%lu:%02d:%02d", hours, minutes, seconds);
+    else           snprintf(buf, sizeof(buf), "%02d:%02d", minutes, seconds);
+
+    int textW = strlen(buf) * CHRONO_CHAR_W;
+    gfx->fillRect(20, CHRONO_Y, LCD_WIDTH - 40, CHRONO_H, PAL_FONDO);   // sin tocar el borde de la caja
+    gfx->setTextSize(5);
+    gfx->setTextColor(PAL_MENTA);
+    gfx->setCursor((LCD_WIDTH - textW) / 2, CHRONO_Y);
+    gfx->print(buf);
+}
+
+void DisplayUI::refreshChronoDigits() {
+    if (PowerManager::isScreenOff()) return;
+    if (currentScreen != SCREEN_DASHBOARD || currentTab != TAB_CHRONO) return;
+    drawChronoDigits();
+}
+
 void DisplayUI::drawDashboard() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);
@@ -197,14 +228,7 @@ void DisplayUI::drawDashboard() {
             }
         }
     } else if (currentTab == TAB_CHRONO) {
-        unsigned long currentMillis = AlarmManager::getChronoTime();
-        int seconds = (currentMillis / 1000) % 60;
-        int minutes = (currentMillis / (1000 * 60)) % 60;
-
-        gfx->setTextSize(5);
-        gfx->setTextColor(PAL_MENTA);
-        gfx->setCursor(130, 170);
-        gfx->printf("%02d:%02d", minutes, seconds);
+        drawChronoDigits();
 
         gfx->fillRoundRect(45, 290, 130, 50, 10, AlarmManager::isChronoRunning() ? PAL_ALERTA : PAL_OK);
         gfx->setTextColor(PAL_TEXTO);

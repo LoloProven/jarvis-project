@@ -11,6 +11,7 @@ public:
     static void drawProfileMenu();
     static void drawDashboard();
     static void drawHeaderClockOnly();
+    static void refreshChronoDigits();   // solo si se ve la pestaña CRONO
     static void drawWifiPortalScreen();
     static void triggerAlarmRinging(int alarmIdx);
     static void handleTouch(int16_t x, int16_t y);
@@ -31,6 +32,7 @@ private:
     static unsigned long lastClockUpdate;
 
     static void drawAvatar(int x, int y, uint16_t color, const char* name);
+    static void drawChronoDigits();
 };
 
 #endif

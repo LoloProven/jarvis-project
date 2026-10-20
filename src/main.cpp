@@ -43,7 +43,7 @@ void loop() {
         lastClockUpdate = millis();
         DisplayUI::drawHeaderClockOnly();
         if (AlarmManager::isChronoRunning()) {
-            DisplayUI::drawDashboard();
+            DisplayUI::refreshChronoDigits();   // solo los dígitos, y solo en la pestaña CRONO
         }
     }
 
