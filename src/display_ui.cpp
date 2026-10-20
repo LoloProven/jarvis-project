@@ -49,8 +49,8 @@ static const int CLOCK_X      = LCD_WIDTH - SAFE_MARGIN_X - CLOCK_W;     // 265
 static const int CLOCK_Y      = SAFE_MARGIN_TOP;                         // 20..44
 static const int NAME_X       = SAFE_MARGIN_X;
 static const int NAME_Y       = SAFE_MARGIN_TOP + 4;                     // 24..40
-static const int WIFI_BOX_X   = 124;                                     // después de un nombre de 5 letras
-static const int WIFI_BOX_W   = CLOCK_X - 10 - WIFI_BOX_X;               // termina antes del fondo de la hora
+static const int WIFI_BOX_X   = 119;                                     // después de un nombre de 5 letras (termina en 115)
+static const int WIFI_BOX_W   = CLOCK_X - 4 - WIFI_BOX_X;                // 142 px, termina antes del fondo de la hora
 static const int WIFI_BOX_Y   = SAFE_MARGIN_TOP - 1;
 static const int WIFI_BOX_H   = 26;
 
@@ -118,13 +118,13 @@ void DisplayUI::drawProfileMenu() {
 
 void DisplayUI::drawHeaderClockOnly() {
     if (activeProfile < 0 || PowerManager::isScreenOff()) return;
-    gfx->fillRect(CLOCK_X - 5, 0, LCD_WIDTH - (CLOCK_X - 5), HEADER_H, profiles[activeProfile].color);
+    gfx->fillRect(CLOCK_X - 3, 0, LCD_WIDTH - (CLOCK_X - 3), HEADER_H, profiles[activeProfile].color);
     if (TimeSync::isSynced()) {
         gfx->setTextColor(PAL_TEXTO);
     } else {
         // Hora de respaldo (nunca llegó la de NTP): dígitos en coral sobre una
         // pastilla oscura, para que se note que no es confiable.
-        gfx->fillRoundRect(CLOCK_X - 4, CLOCK_Y - 3, CLOCK_W + 6, 30, 6, PAL_TEXTO);
+        gfx->fillRoundRect(CLOCK_X - 3, CLOCK_Y - 3, CLOCK_W + 5, 30, 6, PAL_TEXTO);
         gfx->setTextColor(PAL_ALERTA);
     }
     gfx->setTextSize(3);
@@ -163,31 +163,30 @@ void DisplayUI::refreshChronoDigits() {
     drawChronoDigits();
 }
 
-// Cajita de conexión del encabezado (texto tamaño 1: 6x8 px, entran 20 caracteres):
-//   coral    "Sin WiFi"
-//   amarillo "WiFi: <red>" + "Verificando..." / "Sin internet"
-//   menta    "WiFi: <red>" + "Internet OK"
+// Texto tamaño 2 con letras 1 px más juntas de lo normal (11 px en vez de 12), así
+// "Sin conexion" (12 letras) entra en la cajita entre el nombre y la hora.
+static const int NET_CHAR_ADV = 11;
+
+static void printCondensed(Arduino_GFX* g, int x, int y, const char* text) {
+    for (int i = 0; text[i]; i++) {
+        g->setCursor(x + i * NET_CHAR_ADV, y);
+        g->print(text[i]);
+    }
+}
+
+// Cajita de conexión del encabezado: "Conectado" en menta si hay internet,
+// "Sin conexion" en coral en cualquier otro caso (sin WiFi o WiFi sin internet).
 void DisplayUI::drawNetBox() {
-    NetState net = NetStatus::get();
-    uint16_t color = (net == NET_ONLINE) ? PAL_OK : (net == NET_NO_WIFI) ? PAL_ALERTA : PAL_AMARILLO;
+    bool connected = (NetStatus::get() == NET_ONLINE);
+    const char* label = connected ? "Conectado" : "Sin conexion";
 
     // Se borra con el color del perfil para no dejar restos del estado anterior.
     gfx->fillRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, profiles[activeProfile].color);
-    gfx->fillRoundRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, 6, color);
+    gfx->fillRoundRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, 6, connected ? PAL_OK : PAL_ALERTA);
     gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(1);
-
-    if (net == NET_NO_WIFI) {
-        gfx->setCursor(WIFI_BOX_X + 6, WIFI_BOX_Y + 9);
-        gfx->print("Sin WiFi");
-        return;
-    }
-    String ssid = WiFi.SSID();
-    if (ssid.length() > 14) ssid = ssid.substring(0, 12) + "..";
-    gfx->setCursor(WIFI_BOX_X + 6, WIFI_BOX_Y + 4);
-    gfx->printf("WiFi: %s", ssid.c_str());
-    gfx->setCursor(WIFI_BOX_X + 6, WIFI_BOX_Y + 14);
-    gfx->print(net == NET_ONLINE ? "Internet OK" : net == NET_CHECKING ? "Verificando..." : "Sin internet");
+    gfx->setTextSize(2);
+    int textW = strlen(label) * NET_CHAR_ADV - 1;
+    printCondensed(gfx, WIFI_BOX_X + (WIFI_BOX_W - textW) / 2, WIFI_BOX_Y + (WIFI_BOX_H - 16) / 2, label);
 }
 
 void DisplayUI::refreshNetStatus(bool wifiChanged) {

@@ -63,6 +63,8 @@ void loop() {
     PowerManager::checkInactivity();
     if (PowerManager::isScreenOff()) return;
 
+    // El dashboard solo cambia entre "Conectado" y "Sin conexion", pero se sigue el
+    // estado completo porque las pestañas dependen de si hay WiFi (VOZ).
     NetState net = NetStatus::get();
     if (net != lastNetState) {
         bool wifiChanged = (net == NET_NO_WIFI) != (lastNetState == NET_NO_WIFI);
