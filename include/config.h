@@ -23,6 +23,9 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 #define PMU_SCL 14
 #define TOUCH_I2C_ADDR 0x38
 
+// Tiempo sin tocar la pantalla hasta que se apaga sola.
+#define SCREEN_TIMEOUT_MS  30000UL
+
 // PINES AUDIO: códec ES8311 (parlante y micrófono por el mismo I2S), tomados
 // del ejemplo 08_ES8311 de Waveshare. El ES8311 se configura por I2C (Wire).
 #define I2S_MCLK      16

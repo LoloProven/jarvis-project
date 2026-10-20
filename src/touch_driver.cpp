@@ -1,11 +1,9 @@
 #include "touch_driver.h"
 #include "config.h"
-#include "power_manager.h"
 #include <Wire.h>
 
+// Se lee también con la pantalla apagada: un toque la vuelve a encender.
 bool TouchDriver::getTouch(int16_t &tx, int16_t &ty) {
-    if (PowerManager::isScreenOff()) return false;
-
     Wire.beginTransmission(TOUCH_I2C_ADDR);
     Wire.write(0x02);
     if (Wire.endTransmission() != 0) return false;

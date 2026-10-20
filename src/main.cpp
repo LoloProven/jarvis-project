@@ -8,6 +8,9 @@
 #include "time_sync.h"
 
 static unsigned long lastClockUpdate = 0;
+// Después de despertar con un toque, se ignora la pantalla hasta que se suelte el dedo,
+// así el toque que despierta no activa el botón que quedó debajo.
+static bool ignoreUntilRelease = false;
 
 void setup() {
     Serial.begin(115200);
@@ -26,18 +29,36 @@ void setup() {
 }
 
 void loop() {
+    // Esto corre siempre, con la pantalla encendida o apagada.
     PowerManager::checkButton();
     TimeSync::loop();
-    AlarmManager::checkAlarms();
-
-    if (PowerManager::isScreenOff()) {
-        delay(50);
-        return;
-    }
+    AlarmManager::checkAlarms();          // si suena con la pantalla apagada, la enciende
 
     if (DisplayUI::getCurrentScreen() == SCREEN_WIFI_CONFIG) {
         WiFiPortal::handlePortal();
     }
+
+    int16_t tx, ty;
+    bool touched = TouchDriver::getTouch(tx, ty);
+
+    if (PowerManager::isScreenOff()) {
+        if (touched) {
+            PowerManager::turnScreenOn();  // el primer toque solo despierta
+            ignoreUntilRelease = true;
+        } else {
+            delay(20);
+        }
+        return;                            // con la pantalla apagada no se dibuja nada
+    }
+
+    if (ignoreUntilRelease) {
+        if (!touched) ignoreUntilRelease = false;
+        touched = false;
+    }
+
+    if (touched) PowerManager::notifyActivity();
+    PowerManager::checkInactivity();
+    if (PowerManager::isScreenOff()) return;
 
     if (DisplayUI::getCurrentScreen() == SCREEN_DASHBOARD && millis() - lastClockUpdate > 1000) {
         lastClockUpdate = millis();
@@ -47,8 +68,7 @@ void loop() {
         }
     }
 
-    int16_t tx, ty;
-    if (TouchDriver::getTouch(tx, ty)) {
+    if (touched) {
         DisplayUI::handleTouch(tx, ty);
     }
 }

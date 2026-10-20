@@ -4,6 +4,7 @@
 
 XPowersPMU PowerManager::PMU;
 bool PowerManager::screenOff = false;
+unsigned long PowerManager::lastActivity = 0;
 
 void PowerManager::init() {
     Wire.begin(PMU_SDA, PMU_SCL);
@@ -16,34 +17,47 @@ void PowerManager::init() {
         PMU.setBLDO2Voltage(3300); PMU.enableBLDO2();
         PMU.enableBattVoltageMeasure();
 
+        // Mantener apretado PWR 4 s = apagado total por hardware (no pasa por el software).
         PMU.setPowerKeyPressOffTime(XPOWERS_POWEROFF_4S);
         PMU.enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ);
         PMU.clearIrqStatus();
     }
+    lastActivity = millis();
 }
 
-void PowerManager::toggleScreenState() {
-    screenOff = !screenOff;
-    if (screenOff) {
-        PMU.disableALDO1();
-        PMU.disableDC1();
-        DisplayUI::getGFX()->displayOff();
-    } else {
-        PMU.enableALDO1();
-        PMU.enableDC1();
-        DisplayUI::getGFX()->displayOn();
-        DisplayUI::refreshCurrentScreen();
-    }
+// Solo se apaga el panel. No se tocan las salidas del AXP2101: DC1 alimenta al
+// sistema, y cortarlo apagaba o reiniciaba el reloj entero.
+void PowerManager::turnScreenOff() {
+    if (screenOff) return;
+    screenOff = true;
+    DisplayUI::getGFX()->displayOff();
+}
+
+void PowerManager::turnScreenOn(bool redraw) {
+    lastActivity = millis();
+    if (!screenOff) return;
+    screenOff = false;
+    DisplayUI::getGFX()->displayOn();
+    if (redraw) DisplayUI::refreshCurrentScreen();   // con la hora y el cronómetro al día
 }
 
 void PowerManager::checkButton() {
     // getIrqStatus() actualiza los registros internos de la librería
     PMU.getIrqStatus();
-    if (PMU.isPekeyShortPressIrq()) {
-        toggleScreenState();
-        PMU.clearIrqStatus();
+    bool shortPress = PMU.isPekeyShortPressIrq();
+    PMU.clearIrqStatus();
+    if (shortPress) {
+        if (screenOff) turnScreenOn();
+        else turnScreenOff();
     }
 }
 
+void PowerManager::checkInactivity() {
+    if (!screenOff && millis() - lastActivity > SCREEN_TIMEOUT_MS) {
+        turnScreenOff();
+    }
+}
+
+void PowerManager::notifyActivity() { lastActivity = millis(); }
 bool PowerManager::isScreenOff() { return screenOff; }
 XPowersPMU& PowerManager::getPMU() { return PMU; }

@@ -88,6 +88,7 @@ String DisplayUI::getFormattedTime() {
 void DisplayUI::refreshCurrentScreen() {
     if (currentScreen == SCREEN_PROFILES) drawProfileMenu();
     else if (currentScreen == SCREEN_DASHBOARD) drawDashboard();
+    else if (currentScreen == SCREEN_WIFI_CONFIG) drawWifiPortalScreen();
 }
 
 void DisplayUI::drawAvatar(int x, int y, uint16_t color, const char* name) {
@@ -102,6 +103,7 @@ void DisplayUI::drawAvatar(int x, int y, uint16_t color, const char* name) {
 }
 
 void DisplayUI::drawProfileMenu() {
+    if (PowerManager::isScreenOff()) return;   // se dibuja al encender
     gfx->fillScreen(PAL_FONDO);
     for (int i = 0; i < 4; i++) {
         drawAvatar(profiles[i].x, profiles[i].y, profiles[i].color, profiles[i].name);
@@ -292,6 +294,7 @@ void DisplayUI::drawDashboard() {
 }
 
 void DisplayUI::drawWifiPortalScreen() {
+    if (PowerManager::isScreenOff()) return;   // se dibuja al encender
     gfx->fillScreen(PAL_FONDO);
     gfx->setTextColor(PAL_CELESTE);
     gfx->setTextSize(2);
@@ -315,8 +318,10 @@ void DisplayUI::drawWifiPortalScreen() {
 }
 
 void DisplayUI::triggerAlarmRinging(int alarmIdx) {
-    if (PowerManager::isScreenOff()) PowerManager::toggleScreenState();
+    // Si la pantalla estaba apagada, se enciende (sin redibujar: la alarma dibuja la suya).
+    PowerManager::turnScreenOn(false);
 
+    ScreenState previousScreen = currentScreen;
     currentScreen = SCREEN_ALARM_RINGING;
     // Pantalla completa en coral: es lo más llamativo de la paleta y contrasta
     // con el resto de la interfaz, que es casi toda negra.
@@ -345,8 +350,11 @@ void DisplayUI::triggerAlarmRinging(int alarmIdx) {
 
     AudioManager::stopTone();
     AlarmManager::alarmList[alarmIdx].active = false;
-    currentScreen = SCREEN_DASHBOARD;
-    drawDashboard();
+    // Vuelve a la pantalla que había (antes iba siempre al dashboard, aunque no
+    // hubiera un perfil abierto).
+    currentScreen = previousScreen;
+    PowerManager::notifyActivity();   // la alarma bloquea el loop: reiniciar la inactividad
+    refreshCurrentScreen();
 }
 
 void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
@@ -449,6 +457,7 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
             gfx->print("GRABANDO");
 
             AudioManager::recordAndSend();
+            PowerManager::notifyActivity();   // la grabación bloquea el loop: reiniciar la inactividad
 
             TouchDriver::waitForRelease();
             drawDashboard();
