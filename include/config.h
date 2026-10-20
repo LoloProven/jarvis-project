@@ -77,9 +77,7 @@ struct Profile {
     int x, y, w, h;
 };
 
-// --- COLORES RGB565 ---
-// Los RGB565_* vienen de Arduino_GFX; acá solo los que la librería no trae.
-#define DARK_GREEN        0x03E0
+// Los colores de la interfaz están en palette.h.
 
 // --- MARGEN SEGURO ---
 // Las esquinas redondeadas del AMOLED tapan ~50 px a cada lado en la parte
