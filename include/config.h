@@ -77,8 +77,6 @@ struct Profile {
     int x, y, w, h;
 };
 
-#define MAX_ALARMS 10
-
 // --- COLORES RGB565 ---
 #define RGB565_BLACK      0x0000
 #define RGB565_WHITE      0xFFFF
