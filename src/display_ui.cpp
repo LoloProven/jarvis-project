@@ -427,7 +427,15 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
                 TouchDriver::waitForRelease();
                 return;
             }
-            if (ty >= 225 && ty <= 270) {
+            // GUARDAR va primero: ocupa la misma franja vertical que las filas de +/−,
+            // y si esas se revisaban antes se quedaban con el toque.
+            if (tx >= 235 && tx <= 385 && ty >= 220 && ty <= 330) {
+                AlarmManager::addAlarm(tempHour, tempMinute);
+                currentTab = TAB_AGENDA;
+                TouchDriver::waitForRelease();
+                drawDashboard();
+                return;
+            } else if (ty >= 225 && ty <= 270) {
                 if (tx >= 40 && tx <= 125) tempHour = (tempHour + 1) % 24;
                 if (tx >= 140 && tx <= 225) tempMinute = (tempMinute + 1) % 60;
                 TouchDriver::waitForRelease();
@@ -436,12 +444,6 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
             } else if (ty >= 280 && ty <= 325) {
                 if (tx >= 40 && tx <= 125) tempHour = (tempHour + 23) % 24;
                 if (tx >= 140 && tx <= 225) tempMinute = (tempMinute + 59) % 60;
-                TouchDriver::waitForRelease();
-                drawDashboard();
-                return;
-            } else if (tx >= 235 && tx <= 385 && ty >= 220 && ty <= 330) {
-                AlarmManager::addAlarm(tempHour, tempMinute);
-                currentTab = TAB_AGENDA;
                 TouchDriver::waitForRelease();
                 drawDashboard();
                 return;
