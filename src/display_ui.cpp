@@ -53,8 +53,8 @@ static const int WIFI_BOX_Y   = SAFE_MARGIN_TOP - 1;
 static const int WIFI_BOX_H   = 26;
 
 static Profile profiles[4] = {
-    {"Lolo",   PAL_ROSA,     35,  30, 150, 150},
-    {"Santi",  PAL_CELESTE, 225,  30, 150, 150},
+    {"Lolo",   PAL_CELESTE,  35,  30, 150, 150},
+    {"Delfi",  PAL_ROSA,    225,  30, 150, 150},
     {"Fede",   PAL_MENTA,    35, 210, 150, 150},
     {"Lucia",  PAL_LILA,    225, 210, 150, 150}
 };
