@@ -23,12 +23,15 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 #define PMU_SCL 14
 #define TOUCH_I2C_ADDR 0x38
 
-// PINES AUDIO (parlante y micrófono I2S)
-#define I2S_MIC_CLK   47
-#define I2S_MIC_DATA  48
-#define I2S_SPK_BCLK  42
-#define I2S_SPK_LRCK  41
-#define I2S_SPK_DOUT  46
+// PINES AUDIO: códec ES8311 (parlante y micrófono por el mismo I2S), tomados
+// del ejemplo 08_ES8311 de Waveshare. El ES8311 se configura por I2C (Wire).
+#define I2S_MCLK      16
+#define I2S_BCLK      41
+#define I2S_WS        45
+#define I2S_DOUT      40    // ESP32 -> ES8311 (parlante)
+#define I2S_DIN       42    // ES8311 -> ESP32 (micrófono)
+#define AUDIO_PA_EN   46    // habilita el amplificador del parlante (HIGH = encendido)
+#define ES8311_ADDR   0x18
 
 // --- usado por AlarmManager ---
 struct AlarmItem {
