@@ -35,6 +35,7 @@ struct AlarmItem {
     int hour;
     int minute;
     bool active;
+    long lastFiredKey;   // minuto (día del año + hora + minuto) en que sonó por última vez; -1 = nunca
 };
 
 // --- PERFILES CON WEBHOOK (backend n8n) ---
