@@ -78,20 +78,7 @@ struct Profile {
 };
 
 // --- COLORES RGB565 ---
-#define RGB565_BLACK      0x0000
-#define RGB565_WHITE      0xFFFF
-#define RGB565_RED        0xF800
-#define RGB565_GREEN      0x07E0
-#define RGB565_BLUE       0x001F
-#define RGB565_CYAN       0x07FF
-#define RGB565_MAGENTA    0xF81F
-#define RGB565_YELLOW     0xFFE0
-#define RGB565_ORANGE     0xFD20
-#define RGB565_NAVY       0x000F
-#define RGB565_PURPLE     0x780F
-#define RGB565_OLIVE      0x7BE0
-#define RGB565_LIGHTGREY  0xC618
-#define RGB565_DARKGREY   0x7BEF
+// Los RGB565_* vienen de Arduino_GFX; acá solo los que la librería no trae.
 #define DARK_GREEN        0x03E0
 
 #endif
