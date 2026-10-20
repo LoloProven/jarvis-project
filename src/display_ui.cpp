@@ -5,6 +5,7 @@
 #include "audio_manager.h"
 #include "wifi_portal.h"
 #include "palette.h"
+#include "time_sync.h"
 #include <WiFi.h>
 
 // --- CORREGIDO: inicialización validada contra el ejemplo oficial de Waveshare ---
@@ -115,7 +116,14 @@ void DisplayUI::drawProfileMenu() {
 void DisplayUI::drawHeaderClockOnly() {
     if (activeProfile < 0 || PowerManager::isScreenOff()) return;
     gfx->fillRect(CLOCK_X - 5, 0, LCD_WIDTH - (CLOCK_X - 5), HEADER_H, profiles[activeProfile].color);
-    gfx->setTextColor(PAL_TEXTO);
+    if (TimeSync::isSynced()) {
+        gfx->setTextColor(PAL_TEXTO);
+    } else {
+        // Hora de respaldo (nunca llegó la de NTP): dígitos en coral sobre una
+        // pastilla oscura, para que se note que no es confiable.
+        gfx->fillRoundRect(CLOCK_X - 4, CLOCK_Y - 3, CLOCK_W + 6, 30, 6, PAL_TEXTO);
+        gfx->setTextColor(PAL_ALERTA);
+    }
     gfx->setTextSize(3);
     gfx->setCursor(CLOCK_X, CLOCK_Y);
     gfx->print(getFormattedTime());

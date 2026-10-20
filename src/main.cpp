@@ -5,8 +5,7 @@
 #include "alarm_manager.h"
 #include "audio_manager.h"
 #include "wifi_portal.h"
-#include "time.h"
-#include <sys/time.h>
+#include "time_sync.h"
 
 static unsigned long lastClockUpdate = 0;
 
@@ -18,12 +17,9 @@ void setup() {
     AlarmManager::init();
     AudioManager::init();
 
-    // Fecha inicial por defecto
-    struct tm tm;
-    tm.tm_year = 2026 - 1900; tm.tm_mon = 8; tm.tm_mday = 17;
-    tm.tm_hour = 0; tm.tm_min = 30; tm.tm_sec = 0;
-    timeval tv = { mktime(&tm), 0 };
-    settimeofday(&tv, NULL);
+    // Zona horaria y hora de respaldo; tiene que ir antes de conectar el WiFi
+    // para no perderse el evento de conexión.
+    TimeSync::init();
 
     WiFiPortal::initSaved();
     DisplayUI::drawProfileMenu();
@@ -31,6 +27,7 @@ void setup() {
 
 void loop() {
     PowerManager::checkButton();
+    TimeSync::loop();
     AlarmManager::checkAlarms();
 
     if (PowerManager::isScreenOff()) {
