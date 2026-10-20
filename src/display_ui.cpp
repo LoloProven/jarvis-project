@@ -394,7 +394,7 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
                 return;
             } else if (ty >= 280 && ty <= 325) {
                 if (tx >= 40 && tx <= 125) tempHour = (tempHour + 23) % 24;
-                if (tx >= 140 && ty <= 225) tempMinute = (tempMinute + 59) % 60;
+                if (tx >= 140 && tx <= 225) tempMinute = (tempMinute + 59) % 60;
                 TouchDriver::waitForRelease();
                 drawDashboard();
                 return;
