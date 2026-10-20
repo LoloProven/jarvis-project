@@ -11,6 +11,16 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 #define MY_WIFI_SSID     WIFI_SSID
 #define MY_WIFI_PASSWORD WIFI_PASS
 
+// Hotspot del celular (opcional). Para activarlo, agregar en secrets.h:
+//   #define SECRET_HOTSPOT_SSID "nombre del hotspot"
+//   #define SECRET_HOTSPOT_PASS "clave del hotspot"
+// El hotspot tiene que estar en 2,4 GHz (el ESP32-S3 no ve redes de 5 GHz).
+#if defined(SECRET_HOTSPOT_SSID) && defined(SECRET_HOTSPOT_PASS)
+#define HAS_HOTSPOT 1
+#define HOTSPOT_SSID SECRET_HOTSPOT_SSID
+#define HOTSPOT_PASS SECRET_HOTSPOT_PASS
+#endif
+
 // --- ALIAS de nombres de pines viejos -> nuevos (pin_config.h) ---
 #define LCD_D0  LCD_SDIO0
 #define LCD_D1  LCD_SDIO1

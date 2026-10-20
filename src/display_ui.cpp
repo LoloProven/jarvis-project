@@ -385,9 +385,7 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
     if (currentScreen == SCREEN_WIFI_CONFIG) {
         if (tx >= 50 && tx <= 350 && ty >= 340 && ty <= 410) {
             TouchDriver::waitForRelease();
-            WiFi.softAPdisconnect(true);
-            currentScreen = SCREEN_PROFILES;
-            drawProfileMenu();
+            WiFiPortal::stopPortal();      // vuelve al menú y a buscar las redes conocidas
         }
         return;
     }
