@@ -46,7 +46,6 @@ struct UserProfile {
 
 static const UserProfile PROFILES[] = {
     {"user_main",  "Lolo",  SECRET_WEBHOOK_MAIN},
-    {"user_santi", "Santi", ""},
     {"user_delfi", "Delfi", ""},
     {"user_fede",  "Fede",  ""},
     {"user_lucia", "Lucia", ""}
