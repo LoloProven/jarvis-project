@@ -32,15 +32,106 @@ static void addNetwork(const String& ssid, const String& pass) {
     xSemaphoreGive(wifiLock);
 }
 
+#if defined(TEST_ONLY_HOTSPOT) && defined(HAS_HOTSPOT)
+// Diagnóstico por USB (solo en la versión de prueba): dice si el hotspot se ve y por
+// qué falla la conexión, sin imprimir nombres de redes ni claves.
+static void diagHotspot() {
+    String want = HOTSPOT_SSID;
+    String wantLower = want; wantLower.toLowerCase();
+    int n = WiFi.scanNetworks();
+    bool found = false;
+    Serial.printf("[diag] redes visibles (2,4 GHz): %d\n", n);
+    for (int i = 0; i < n; i++) {
+        String s = WiFi.SSID(i);
+        String sl = s; sl.toLowerCase();
+        if (s == want) {
+            found = true;
+            Serial.printf("[diag] HOTSPOT VISTO: canal %d, senal %d dBm, seguridad %d\n",
+                          WiFi.channel(i), WiFi.RSSI(i), (int)WiFi.encryptionType(i));
+        } else if (sl == wantLower) {
+            Serial.println("[diag] red IGUAL salvo MAYUSCULAS/minusculas");
+            for (unsigned j = 0; j < s.length(); j++) {
+                if (s[j] != want[j]) {
+                    Serial.printf("[diag]   posicion %u: el celular transmite '%c', secrets.h tiene '%c'\n",
+                                  j + 1, s[j], want[j]);
+                }
+            }
+            // Prueba de confirmación: conectarse con el nombre tal como lo transmite el celular.
+            String realSsid = s;
+            WiFi.scanDelete();
+            Serial.println("[diag] probando conectar con el nombre tal como lo transmite el celular...");
+            WiFi.begin(realSsid.c_str(), HOTSPOT_PASS);
+            unsigned long t0 = millis();
+            while (WiFi.status() != WL_CONNECTED && millis() - t0 < 10000) vTaskDelay(pdMS_TO_TICKS(200));
+            Serial.printf("[diag] con el nombre real: %s (estado %d)\n",
+                          WiFi.status() == WL_CONNECTED ? "CONECTADO" : "fallo", (int)WiFi.status());
+            return;
+        } else if (s.length() > 0 && (sl.indexOf(wantLower) >= 0 || wantLower.indexOf(sl) >= 0)) {
+            Serial.printf("[diag] red que CONTIENE o esta contenida en el nombre (largo %d vs %d)\n",
+                          s.length(), want.length());
+        } else if (s.length() == want.length()) {
+            int diff = 0, firstPos = -1;
+            for (unsigned j = 0; j < s.length(); j++) {
+                if (sl[j] != wantLower[j]) { diff++; if (firstPos < 0) firstPos = j; }
+            }
+            if (diff <= 3) {
+                Serial.printf("[diag] red con el mismo largo y %d letra(s) distinta(s), la primera en la posicion %d "
+                              "(codigo visto %d, esperado %d)\n", diff, firstPos + 1,
+                              (int)(uint8_t)s[firstPos], (int)(uint8_t)want[firstPos]);
+            }
+        }
+    }
+    // Cuántas redes ve en el canal 6 (donde la PC ve el hotspot) y la señal más fuerte.
+    int ch6 = 0, best = -127;
+    for (int i = 0; i < n; i++) {
+        if (WiFi.channel(i) == 6) ch6++;
+        if (WiFi.RSSI(i) > best) best = WiFi.RSSI(i);
+    }
+    Serial.printf("[diag] redes en canal 6: %d, senal mas fuerte vista: %d dBm\n", ch6, best);
+    WiFi.scanDelete();
+
+    if (!found) {
+        Serial.printf("[diag] hotspot NO visible en la busqueda general (largo esperado %d)\n", want.length());
+
+        // Búsqueda dirigida: pregunta por la red por su nombre, en el canal 6 y en todos,
+        // con más tiempo por canal. Algunos celulares solo responden así.
+        int m = WiFi.scanNetworks(false, true, false, 600, 6, HOTSPOT_SSID);
+        Serial.printf("[diag] busqueda por nombre en canal 6: %d resultado(s)\n", m < 0 ? 0 : m);
+        for (int i = 0; i < m; i++) {
+            Serial.printf("[diag]   -> canal %d, senal %d dBm, seguridad %d\n",
+                          WiFi.channel(i), WiFi.RSSI(i), (int)WiFi.encryptionType(i));
+        }
+        WiFi.scanDelete();
+        m = WiFi.scanNetworks(false, true, false, 600, 0, HOTSPOT_SSID);
+        Serial.printf("[diag] busqueda por nombre en todos los canales: %d resultado(s)\n", m < 0 ? 0 : m);
+        WiFi.scanDelete();
+
+        // Intento directo, sin WiFiMulti: el motivo de la desconexión sale por el evento.
+        Serial.println("[diag] intento directo con WiFi.begin...");
+        WiFi.begin(HOTSPOT_SSID, HOTSPOT_PASS);
+        unsigned long t0 = millis();
+        while (WiFi.status() != WL_CONNECTED && millis() - t0 < 10000) vTaskDelay(pdMS_TO_TICKS(200));
+        Serial.printf("[diag] intento directo: %s (estado %d)\n",
+                      WiFi.status() == WL_CONNECTED ? "CONECTADO" : "fallo", (int)WiFi.status());
+    }
+}
+#endif
+
 // Si no hay WiFi, busca entre las redes conocidas la que esté disponible con mejor
 // señal y se conecta. Así, al salir de casa se pasa sola al hotspot del celular.
 // Corre en el núcleo 0 para no trabar la pantalla mientras busca.
 static void wifiKeeperTask(void*) {
     for (;;) {
         if (!portalActive && WiFi.status() != WL_CONNECTED) {
+#if defined(TEST_ONLY_HOTSPOT) && defined(HAS_HOTSPOT)
+            diagHotspot();
+#endif
             xSemaphoreTake(wifiLock, portMAX_DELAY);
-            wifiMulti.run(CONNECT_TIMEOUT_MS);
+            uint8_t res = wifiMulti.run(CONNECT_TIMEOUT_MS);
             xSemaphoreGive(wifiLock);
+#ifdef TEST_ONLY_HOTSPOT
+            Serial.printf("[diag] resultado de la conexion: %d (3=conectado, 1=no se ve la red, 4=fallo, 6=desconectado)\n", res);
+#endif
         }
         vTaskDelay(pdMS_TO_TICKS(RECONNECT_EVERY_MS));
     }
@@ -49,6 +140,17 @@ static void wifiKeeperTask(void*) {
 void WiFiPortal::initSaved() {
     wifiLock = xSemaphoreCreateMutex();
     WiFi.mode(WIFI_STA);
+
+#ifdef TEST_ONLY_HOTSPOT
+#ifndef HAS_HOTSPOT
+    Serial.println("[diag] ATENCION: no se encontro SECRET_HOTSPOT_SSID/PASS en secrets.h");
+#endif
+    // Motivo de cada desconexión (p. ej. 15 = clave incorrecta, 201 = no encuentra la red,
+    // 202 = falla de autenticación, 210 = seguridad incompatible, como solo WPA3).
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        Serial.printf("[diag] desconectado, motivo: %d\n", info.wifi_sta_disconnected.reason);
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+#endif
 
     prefs.begin("wifi_config", true);
     String savedSSID = prefs.getString("ssid", "");
