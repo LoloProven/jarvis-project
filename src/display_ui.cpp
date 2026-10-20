@@ -6,6 +6,7 @@
 #include "wifi_portal.h"
 #include "palette.h"
 #include "time_sync.h"
+#include "net_status.h"
 #include <WiFi.h>
 
 // --- CORREGIDO: inicialización validada contra el ejemplo oficial de Waveshare ---
@@ -162,6 +163,41 @@ void DisplayUI::refreshChronoDigits() {
     drawChronoDigits();
 }
 
+// Cajita de conexión del encabezado (texto tamaño 1: 6x8 px, entran 20 caracteres):
+//   coral    "Sin WiFi"
+//   amarillo "WiFi: <red>" + "Verificando..." / "Sin internet"
+//   menta    "WiFi: <red>" + "Internet OK"
+void DisplayUI::drawNetBox() {
+    NetState net = NetStatus::get();
+    uint16_t color = (net == NET_ONLINE) ? PAL_OK : (net == NET_NO_WIFI) ? PAL_ALERTA : PAL_AMARILLO;
+
+    // Se borra con el color del perfil para no dejar restos del estado anterior.
+    gfx->fillRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, profiles[activeProfile].color);
+    gfx->fillRoundRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, 6, color);
+    gfx->setTextColor(PAL_TEXTO);
+    gfx->setTextSize(1);
+
+    if (net == NET_NO_WIFI) {
+        gfx->setCursor(WIFI_BOX_X + 6, WIFI_BOX_Y + 9);
+        gfx->print("Sin WiFi");
+        return;
+    }
+    String ssid = WiFi.SSID();
+    if (ssid.length() > 14) ssid = ssid.substring(0, 12) + "..";
+    gfx->setCursor(WIFI_BOX_X + 6, WIFI_BOX_Y + 4);
+    gfx->printf("WiFi: %s", ssid.c_str());
+    gfx->setCursor(WIFI_BOX_X + 6, WIFI_BOX_Y + 14);
+    gfx->print(net == NET_ONLINE ? "Internet OK" : net == NET_CHECKING ? "Verificando..." : "Sin internet");
+}
+
+void DisplayUI::refreshNetStatus(bool wifiChanged) {
+    if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
+    // Si aparece o desaparece el WiFi cambian las pestañas (VOZ), así que va todo;
+    // si solo cambia el estado de internet alcanza con la cajita.
+    if (wifiChanged) drawDashboard();
+    else drawNetBox();
+}
+
 void DisplayUI::drawDashboard() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);
@@ -173,18 +209,7 @@ void DisplayUI::drawDashboard() {
     gfx->setCursor(NAME_X, NAME_Y);
     gfx->printf("%s", profiles[activeProfile].name);
 
-    gfx->fillRoundRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, 6, online ? PAL_OK : PAL_ALERTA);
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->setCursor(WIFI_BOX_X + 6, WIFI_BOX_Y + 9);
-    gfx->setTextSize(1);
-    if (online) {
-        String ssid = WiFi.SSID();
-        if (ssid.length() > 10) ssid = ssid.substring(0, 8) + "..";
-        gfx->printf("WiFi: %s", ssid.c_str());
-    } else {
-        gfx->print("WiFi: Desconectado");
-    }
-
+    drawNetBox();
     drawHeaderClockOnly();
 
     int tabW = online ? 88 : 115;

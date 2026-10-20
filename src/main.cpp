@@ -6,8 +6,10 @@
 #include "audio_manager.h"
 #include "wifi_portal.h"
 #include "time_sync.h"
+#include "net_status.h"
 
 static unsigned long lastClockUpdate = 0;
+static NetState lastNetState = NET_NO_WIFI;
 // Después de despertar con un toque, se ignora la pantalla hasta que se suelte el dedo,
 // así el toque que despierta no activa el botón que quedó debajo.
 static bool ignoreUntilRelease = false;
@@ -23,6 +25,7 @@ void setup() {
     // Zona horaria y hora de respaldo; tiene que ir antes de conectar el WiFi
     // para no perderse el evento de conexión.
     TimeSync::init();
+    NetStatus::init();
 
     WiFiPortal::initSaved();
     DisplayUI::drawProfileMenu();
@@ -59,6 +62,13 @@ void loop() {
     if (touched) PowerManager::notifyActivity();
     PowerManager::checkInactivity();
     if (PowerManager::isScreenOff()) return;
+
+    NetState net = NetStatus::get();
+    if (net != lastNetState) {
+        bool wifiChanged = (net == NET_NO_WIFI) != (lastNetState == NET_NO_WIFI);
+        lastNetState = net;
+        DisplayUI::refreshNetStatus(wifiChanged);
+    }
 
     if (DisplayUI::getCurrentScreen() == SCREEN_DASHBOARD && millis() - lastClockUpdate > 1000) {
         lastClockUpdate = millis();
