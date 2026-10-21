@@ -8,6 +8,9 @@
 #include "time_sync.h"
 #include "net_status.h"
 #include "step_counter.h"
+#include "media_remote.h"
+
+static const int TAB_W = 88;   // 4 pestañas de 88 px
 #include <WiFi.h>
 
 // --- CORREGIDO: inicialización validada contra el ejemplo oficial de Waveshare ---
@@ -214,16 +217,139 @@ void DisplayUI::drawNetBox() {
 
 void DisplayUI::refreshNetStatus(bool wifiChanged) {
     if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
-    // Si aparece o desaparece el WiFi cambian las pestañas (VOZ), así que va todo;
-    // si solo cambia el estado de internet alcanza con la cajita.
-    if (wifiChanged) drawDashboard();
-    else drawNetBox();
+    // Las pestañas ya no dependen del WiFi (MÚSICA va por Bluetooth): alcanza con la cajita.
+    drawNetBox();
+}
+
+// --- PESTAÑA MÚSICA (dentro de la caja 15..395 x 110..410) ---
+// Fila de arriba: anterior, play/pausa, siguiente. Fila de abajo: volumen - y +.
+struct MusicButton { int x, y, w, h; const char* label; MediaRemote::Key key; };
+static const MusicButton MUSIC_BUTTONS[] = {
+    {  40, 215, 100, 80, "|<<", MediaRemote::PREV },
+    { 155, 215, 100, 80, ">||", MediaRemote::PLAY_PAUSE },
+    { 270, 215, 100, 80, ">>|", MediaRemote::NEXT },
+    {  40, 315, 155, 70, "VOL-", MediaRemote::VOL_DOWN },
+    { 215, 315, 155, 70, "VOL+", MediaRemote::VOL_UP },
+};
+static const int MUSIC_BUTTON_COUNT = sizeof(MUSIC_BUTTONS) / sizeof(MUSIC_BUTTONS[0]);
+static bool lastMusicConnected = false;
+
+static void drawMusicButton(Arduino_GFX* g, const MusicButton& b, uint16_t fill, uint16_t text) {
+    g->fillRoundRect(b.x, b.y, b.w, b.h, 12, fill);
+    g->setTextColor(text);
+    g->setTextSize(3);
+    int tw = strlen(b.label) * 18;
+    g->setCursor(b.x + (b.w - tw) / 2, b.y + (b.h - 24) / 2);
+    g->print(b.label);
+}
+
+// Imprime hasta maxChars caracteres; si el texto es más largo, lo corta con "..".
+static void printFit(Arduino_GFX* g, const char* s, int maxChars) {
+    int n = strlen(s);
+    if (n <= maxChars) { g->print(s); return; }
+    for (int i = 0; i < maxChars - 2; i++) g->print(s[i]);
+    g->print("..");
+}
+
+static uint32_t lastTrackVersion = 0;
+
+// Zona de arriba de la pestaña: la canción que suena (o cómo vincular el reloj).
+static void drawMusicStatus(Arduino_GFX* g) {
+    bool conn = MediaRemote::isConnected();
+    lastMusicConnected = conn;
+    lastTrackVersion = MediaRemote::trackInfoVersion();
+    g->fillRect(20, 118, LCD_WIDTH - 40, 90, PAL_FONDO);   // zona del estado
+    g->setTextSize(2);
+    if (conn && MediaRemote::title()[0]) {
+        // Entran 29 letras de 12 px entre x=30 y x=380.
+        g->setTextColor(PAL_CELESTE);
+        g->setCursor(30, 128); printFit(g, MediaRemote::title(), 29);
+        g->setTextColor(PAL_LILA);
+        g->setCursor(30, 154); printFit(g, MediaRemote::artist(), 29);
+        g->setTextColor(MediaRemote::isPlaying() ? PAL_MENTA : PAL_AMARILLO);
+        g->setCursor(30, 182); g->print(MediaRemote::isPlaying() ? "Sonando" : "En pausa");
+    } else if (conn) {
+        g->setTextColor(PAL_MENTA);
+        g->setCursor(30, 130); g->print("Conectado al celular");
+        g->setTextColor(PAL_LILA);
+        g->setCursor(30, 160); g->print("Pone algo en Spotify u");
+        g->setCursor(30, 182); g->print("otra app de musica");
+    } else {
+        g->setTextColor(PAL_AMARILLO);
+        g->setCursor(30, 130); g->print("Sin conectar");
+        g->setTextColor(PAL_TEXTO_CLARO);
+        g->setCursor(30, 160); g->print("En el celular: Ajustes >");
+        g->setCursor(30, 182); g->print("Bluetooth > JARVIS Reloj");
+    }
+}
+
+static void drawMusicTab(Arduino_GFX* g) {
+    bool conn = MediaRemote::isConnected();
+    drawMusicStatus(g);
+    for (int i = 0; i < MUSIC_BUTTON_COUNT; i++) {
+        if (conn) drawMusicButton(g, MUSIC_BUTTONS[i], PAL_ACENTO, PAL_TEXTO);
+        else      drawMusicButton(g, MUSIC_BUTTONS[i], PAL_TARJETA, PAL_LILA);   // deshabilitados
+    }
+}
+
+// --- Toques en los botones de música (sin bloquear) ---
+// handleTouch se llama en cada vuelta del loop mientras el dedo está apoyado. Si el
+// último toque fue hace menos de MUSIC_HOLD_GAP_MS es el mismo dedo todavía apoyado.
+static const unsigned long MUSIC_HOLD_GAP_MS  = 90;
+static const unsigned long MUSIC_REPEAT_AFTER = 450;   // mantener volumen: empieza a repetir...
+static const unsigned long MUSIC_REPEAT_EVERY = 150;   // ...y repite cada 150 ms
+static const unsigned long MUSIC_FLASH_MS     = 200;   // blanco al apretar: en menta casi no se distinguía del celeste
+static int musicHeld = -1;                 // botón que se está apretando
+static unsigned long musicLastTouch = 0, musicHeldSince = 0, musicLastSend = 0;
+static int musicFlash = -1;                // botón pintado de blanco
+static unsigned long musicFlashUntil = 0;
+
+static void musicSend(Arduino_GFX* g, int i) {
+    const MusicButton& b = MUSIC_BUTTONS[i];
+    MediaRemote::press(b.key);
+    musicLastSend = millis();
+    drawMusicButton(g, b, PAL_TEXTO_CLARO, PAL_TEXTO);
+    musicFlash = i;
+    musicFlashUntil = millis() + MUSIC_FLASH_MS;
+}
+
+void DisplayUI::handleMusicButton(int i) {
+    unsigned long now = millis();
+    bool sameFinger = (musicHeld == i) && (now - musicLastTouch < MUSIC_HOLD_GAP_MS);
+    musicLastTouch = now;
+    if (!sameFinger) {                       // toque nuevo: se manda ya
+        musicHeld = i;
+        musicHeldSince = now;
+        musicSend(gfx, i);
+        return;
+    }
+    MediaRemote::Key k = MUSIC_BUTTONS[i].key;
+    bool isVolume = (k == MediaRemote::VOL_UP || k == MediaRemote::VOL_DOWN);
+    if (isVolume && now - musicHeldSince > MUSIC_REPEAT_AFTER && now - musicLastSend > MUSIC_REPEAT_EVERY) {
+        musicSend(gfx, i);                   // volumen mantenido: repite
+    }
+}
+
+// Vuelve a pintar de celeste el botón que titiló (se llama en cada vuelta del loop).
+void DisplayUI::musicTick() {
+    if (musicFlash < 0 || millis() < musicFlashUntil) return;
+    int i = musicFlash;
+    musicFlash = -1;
+    if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD || currentTab != TAB_MUSIC) return;
+    drawMusicButton(gfx, MUSIC_BUTTONS[i], MediaRemote::isConnected() ? PAL_ACENTO : PAL_TARJETA,
+                    MediaRemote::isConnected() ? PAL_TEXTO : PAL_LILA);
+}
+
+// Si cambia el estado de la conexión Bluetooth con la pestaña a la vista, se redibuja.
+void DisplayUI::refreshMusicTab() {
+    if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD || currentTab != TAB_MUSIC) return;
+    if (MediaRemote::isConnected() != lastMusicConnected) drawMusicTab(gfx);   // botones incluidos
+    else if (MediaRemote::trackInfoVersion() != lastTrackVersion) drawMusicStatus(gfx);   // solo la canción
 }
 
 void DisplayUI::drawDashboard() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);
-    bool online = (WiFi.status() == WL_CONNECTED);
 
     gfx->fillRect(0, 0, LCD_WIDTH, HEADER_H, profiles[activeProfile].color);
     gfx->setTextColor(PAL_TEXTO);
@@ -235,13 +361,11 @@ void DisplayUI::drawDashboard() {
     lastClockSynced = -1;          // el encabezado se acaba de pintar: forzar la hora
     drawHeaderClockOnly();
 
-    int tabW = online ? 88 : 115;
-    drawTab(gfx, 15,                tabW, 25,                "AGENDA",  currentTab == TAB_AGENDA);
-    drawTab(gfx, 20 + tabW,         tabW, 30 + tabW,         "CRONO",   currentTab == TAB_CHRONO);
-    drawTab(gfx, 25 + (tabW * 2),   tabW, 30 + (tabW * 2),   "+ALARMA", currentTab == TAB_ADD_ALARM);
-    if (online) {
-        drawTab(gfx, 30 + (tabW * 3), tabW, 40 + (tabW * 3), "VOZ",     currentTab == TAB_AUDIO);
-    }
+    // Siempre 4 pestañas (antes VOZ aparecía solo con WiFi).
+    drawTab(gfx, 15,                TAB_W, 25,                "AGENDA",  currentTab == TAB_AGENDA);
+    drawTab(gfx, 20 + TAB_W,        TAB_W, 30 + TAB_W,        "CRONO",   currentTab == TAB_CHRONO);
+    drawTab(gfx, 25 + (TAB_W * 2),  TAB_W, 30 + (TAB_W * 2),  "+ALARMA", currentTab == TAB_ADD_ALARM);
+    drawTab(gfx, 30 + (TAB_W * 3),  TAB_W, 38 + (TAB_W * 3),  "MUSICA",  currentTab == TAB_MUSIC);
 
     gfx->drawRoundRect(15, 110, 380, 300, 12, PAL_LILA);
 
@@ -326,12 +450,8 @@ void DisplayUI::drawDashboard() {
         gfx->setTextSize(2);
         gfx->setCursor(255, 265);
         gfx->print("GUARDAR");
-    } else if (currentTab == TAB_AUDIO && online) {
-        gfx->fillCircle(205, 230, 65, PAL_ACENTO);
-        gfx->setTextColor(PAL_TEXTO);
-        gfx->setTextSize(2);
-        gfx->setCursor(160, 222);
-        gfx->print("MANTENER");
+    } else if (currentTab == TAB_MUSIC) {
+        drawMusicTab(gfx);
     }
 
     drawBottomBar();
@@ -391,9 +511,13 @@ static void drawBarField(Arduino_GFX* g, BarField f, int x, int y, int widthChar
     g->printf("%-*s", widthChars, text);
 }
 
-static void updateBarFields(Arduino_GFX* g, bool force) {
+// Pasos, km y velocidad solo se muestran en la pestaña CRONO; en las demás la barra
+// tiene solo la batería y el botón Salir.
+static void updateBarFields(Arduino_GFX* g, bool force, bool showSteps) {
     char buf[16];
-    if (StepCounter::available()) {
+    if (!showSteps) {
+        // (el dashboard se acaba de pintar de negro, no hay nada que borrar)
+    } else if (StepCounter::available()) {
         snprintf(buf, sizeof(buf), "%lu pasos", (unsigned long)StepCounter::steps());
         drawBarField(g, BF_STEPS, STEPS_X, BAR_Y + 2, 11, buf, PAL_MENTA, force);
         snprintf(buf, sizeof(buf), "%.2f km", StepCounter::distanceKm());
@@ -413,7 +537,7 @@ static void updateBarFields(Arduino_GFX* g, bool force) {
 
 // Dibujo completo (al armar el dashboard, que ya pintó el fondo de negro).
 void DisplayUI::drawBottomBar() {
-    updateBarFields(gfx, true);
+    updateBarFields(gfx, true, currentTab == TAB_CHRONO);
 
     gfx->fillRoundRect(SALIR_X, BAR_Y, SALIR_W, 45, 12, PAL_ALERTA);
     gfx->setTextColor(PAL_TEXTO);
@@ -425,7 +549,7 @@ void DisplayUI::drawBottomBar() {
 // Actualización periódica: solo los datos que cambiaron, sin tocar el botón.
 void DisplayUI::refreshBottomBar() {
     if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
-    updateBarFields(gfx, false);
+    updateBarFields(gfx, false, currentTab == TAB_CHRONO);
 }
 
 void DisplayUI::showSleepMessage() {
@@ -533,14 +657,11 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
             return;
         }
     } else if (currentScreen == SCREEN_DASHBOARD) {
-        bool online = (WiFi.status() == WL_CONNECTED);
-
         if (ty >= 65 && ty <= 103) {
-            int tabW = online ? 88 : 115;
-            if (tx >= 15 && tx <= 15 + tabW) currentTab = TAB_AGENDA;
-            else if (tx >= 20 + tabW && tx <= 20 + (tabW * 2)) currentTab = TAB_CHRONO;
-            else if (tx >= 25 + (tabW * 2) && tx <= 25 + (tabW * 3)) currentTab = TAB_ADD_ALARM;
-            else if (online && tx >= 30 + (tabW * 3) && tx <= 390) currentTab = TAB_AUDIO;
+            if (tx >= 15 && tx <= 15 + TAB_W) currentTab = TAB_AGENDA;
+            else if (tx >= 20 + TAB_W && tx <= 20 + (TAB_W * 2)) currentTab = TAB_CHRONO;
+            else if (tx >= 25 + (TAB_W * 2) && tx <= 25 + (TAB_W * 3)) currentTab = TAB_ADD_ALARM;
+            else if (tx >= 30 + (TAB_W * 3) && tx <= 390) currentTab = TAB_MUSIC;
 
             TouchDriver::waitForRelease();
             drawDashboard();
@@ -605,20 +726,18 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
             }
         }
 
-        // --- BOTÓN DE VOZ CON FEEDBACK Y DETECCIÓN MEJORADA ---
-        if (currentTab == TAB_AUDIO && online && tx >= 130 && tx <= 280 && ty >= 150 && ty <= 300) {
-            gfx->fillCircle(205, 230, 65, PAL_ALERTA);
-            gfx->setTextColor(PAL_TEXTO);
-            gfx->setTextSize(2);
-            gfx->setCursor(150, 222);
-            gfx->print("GRABANDO");
-
-            AudioManager::recordAndSend();
-            PowerManager::notifyActivity();   // la grabación bloquea el loop: reiniciar la inactividad
-
-            TouchDriver::waitForRelease();
-            drawDashboard();
-            return;
+        // MÚSICA: la tecla se manda apenas se toca, sin esperar a que se suelte el dedo
+        // (antes waitForRelease frenaba hasta 0,8 s y no se podía apretar rápido).
+        // Mantener VOL+/VOL- repite la tecla. El botón titila en blanco (ver musicTick).
+        if (currentTab == TAB_MUSIC && MediaRemote::isConnected()) {
+            for (int i = 0; i < MUSIC_BUTTON_COUNT; i++) {
+                const MusicButton& b = MUSIC_BUTTONS[i];
+                if (tx >= b.x && tx <= b.x + b.w && ty >= b.y && ty <= b.y + b.h) {
+                    handleMusicButton(i);
+                    return;
+                }
+            }
+            musicHeld = -1;
         }
 
         if (tx >= SALIR_X && tx <= SALIR_X + SALIR_W && ty >= BAR_Y && ty <= BAR_Y + 45) {

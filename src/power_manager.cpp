@@ -5,6 +5,7 @@
 #include "net_status.h"
 #include "wifi_portal.h"
 #include "touch_driver.h"
+#include "media_remote.h"
 #include <esp_sleep.h>
 #include <driver/gpio.h>
 
@@ -50,7 +51,10 @@ void PowerManager::turnScreenOff() {
 
 void PowerManager::turnScreenOn(bool redraw) {
     lastActivity = millis();
-    sleeping = false;                        // prender la pantalla siempre sale del modo dormir
+    if (sleeping) {                          // prender la pantalla siempre sale del modo dormir
+        sleeping = false;
+        MediaRemote::init();                 // el Bluetooth se apagó al dormir
+    }
     if (!screenOff) return;
     screenOff = false;
     setCpuFrequencyMhz(240);
@@ -84,11 +88,26 @@ void PowerManager::enterSleep() {
     }
     turnScreenOff();
     WiFiPortal::suspend();
+    MediaRemote::stop();                         // con Bluetooth el chip no puede dormir
     pinMode(BOOT_BUTTON, INPUT_PULLUP);
     sleeping = true;
 }
 
 PowerManager::WakeReason PowerManager::sleepTick() {
+    // Con el Bluetooth activo el sueño liviano del chip se cuelga (el controlador BLE
+    // precompilado no soporta dormir) y el reloj no se podía despertar. En ese caso se
+    // usa un "sueño suave": se espera 1 s mirando el touch y BOOT, sin dormir el chip.
+    // Gasta más, pero se despierta siempre.
+    if (MediaRemote::isEnabled()) {
+        int16_t tx, ty;
+        for (int i = 0; i < 20; i++) {
+            if (TouchDriver::getTouch(tx, ty)) { turnScreenOn(); return WAKE_TOUCH; }
+            if (digitalRead(BOOT_BUTTON) == LOW) { turnScreenOn(); return WAKE_BUTTON; }
+            delay(50);
+        }
+        checkButton();
+        return sleeping ? WAKE_NONE : WAKE_BUTTON;
+    }
     {
         I2CLock lock;                            // que no quede ninguna lectura I2C a medias
         detachInterrupt(digitalPinToInterrupt(TP_INT));

@@ -173,11 +173,8 @@ void WiFiPortal::initSaved() {
     addNetwork(HOTSPOT_SSID, HOTSPOT_PASS);            // el hotspot del celular
 #endif
 
-    // Primer intento al arrancar (bloquea como máximo CONNECT_TIMEOUT_MS).
-    xSemaphoreTake(wifiLock, portMAX_DELAY);
-    wifiMulti.run(CONNECT_TIMEOUT_MS);
-    xSemaphoreGive(wifiLock);
-
+    // La primera conexión la hace la tarea apenas arranca, en segundo plano. Antes se
+    // hacía acá y bloqueaba el arranque ~10 s con la pantalla en negro.
     xTaskCreatePinnedToCore(wifiKeeperTask, "wifiKeeper", 4096, NULL, 1, NULL, 0);
 }
 

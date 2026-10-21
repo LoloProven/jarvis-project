@@ -8,6 +8,7 @@
 #include "time_sync.h"
 #include "net_status.h"
 #include "step_counter.h"
+#include "media_remote.h"
 
 static unsigned long lastClockUpdate = 0;
 static NetState lastNetState = NET_NO_WIFI;
@@ -29,6 +30,7 @@ void setup() {
     TimeSync::init();
     StepCounter::init();           // después de TimeSync: necesita la fecha para saber qué día es
     NetStatus::init();
+    MediaRemote::init();           // Bluetooth: control de la música del celular
 
     WiFiPortal::initSaved();
     DisplayUI::drawProfileMenu();
@@ -77,8 +79,7 @@ void loop() {
     PowerManager::checkInactivity();
     if (PowerManager::isScreenOff()) return;
 
-    // El dashboard solo cambia entre "Conectado" y "Sin conexion", pero se sigue el
-    // estado completo porque las pestañas dependen de si hay WiFi (VOZ).
+    // Cajita "Conectado" / "Sin conexion" del encabezado.
     NetState net = NetStatus::get();
     if (net != lastNetState) {
         bool wifiChanged = (net == NET_NO_WIFI) != (lastNetState == NET_NO_WIFI);
@@ -92,10 +93,13 @@ void loop() {
         lastClockUpdate = millis();
         DisplayUI::drawHeaderClockOnly();
         DisplayUI::refreshBottomBar();
+        DisplayUI::refreshMusicTab();
         if (AlarmManager::isChronoRunning()) {
             DisplayUI::refreshChronoDigits();   // solo los dígitos, y solo en la pestaña CRONO
         }
     }
+
+    DisplayUI::musicTick();                    // botón de música que titiló: vuelve a celeste
 
     if (touched) {
         DisplayUI::handleTouch(tx, ty);
