@@ -2,6 +2,8 @@
 #include "config.h"
 #include "display_ui.h"
 #include "i2c_lock.h"
+#include "net_status.h"
+#include "wifi_portal.h"
 
 XPowersPMU PowerManager::PMU;
 bool PowerManager::screenOff = false;
@@ -24,20 +26,37 @@ void PowerManager::init() {
     lastActivity = millis();
 }
 
+// Con la pantalla apagada el reloj sigue andando (hora, pasos, alarmas), pero gastando
+// menos: el procesador baja a 80 MHz, no se revisa internet y, pasados WIFI_OFF_AFTER_MS,
+// se apaga el WiFi. Antes seguía todo a pleno y la batería no llegaba a la mañana.
+static unsigned long screenOffSince = 0;
+
 // Solo se apaga el panel. No se tocan las salidas del AXP2101: DC1 alimenta al
 // sistema, y cortarlo apagaba o reiniciaba el reloj entero.
 void PowerManager::turnScreenOff() {
     if (screenOff) return;
     screenOff = true;
+    screenOffSince = millis();
     DisplayUI::getGFX()->displayOff();
+    NetStatus::setPaused(true);
+    setCpuFrequencyMhz(80);
 }
 
 void PowerManager::turnScreenOn(bool redraw) {
     lastActivity = millis();
     if (!screenOff) return;
     screenOff = false;
+    setCpuFrequencyMhz(240);
+    NetStatus::setPaused(false);
+    WiFiPortal::resume();
     DisplayUI::getGFX()->displayOn();
     if (redraw) DisplayUI::refreshCurrentScreen();   // con la hora y el cronómetro al día
+}
+
+void PowerManager::lowPowerTick() {
+    if (!screenOff || WiFiPortal::isSuspended()) return;
+    if (DisplayUI::getCurrentScreen() == SCREEN_WIFI_CONFIG) return;   // el portal necesita WiFi
+    if (millis() - screenOffSince > WIFI_OFF_AFTER_MS) WiFiPortal::suspend();
 }
 
 void PowerManager::checkButton() {

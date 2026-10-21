@@ -13,6 +13,7 @@ public:
     static void checkButton();             // toque corto de PWR: apaga o enciende la pantalla
     static void checkInactivity();         // apaga la pantalla tras SCREEN_TIMEOUT_MS sin toques
     static void notifyActivity();          // reinicia el contador de inactividad
+    static void lowPowerTick();            // con la pantalla apagada un rato, apaga el WiFi
     static void turnScreenOff();
     static void turnScreenOn(bool redraw = true);
     static bool isScreenOff();

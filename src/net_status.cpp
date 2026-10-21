@@ -12,6 +12,7 @@ static const uint32_t CHECK_EVERY_OFFLINE_MS = 10000;   // sin internet: reinten
 static const uint16_t HTTP_TIMEOUT_MS        = 4000;
 
 static volatile NetState state = NET_NO_WIFI;
+static volatile bool paused = false;       // con la pantalla apagada no se revisa (ahorra batería)
 
 static bool hasInternet() {
     HTTPClient http;
@@ -30,6 +31,10 @@ static void netTask(void*) {
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
+        if (paused) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
         if (state == NET_NO_WIFI) state = NET_CHECKING;   // recién conectado
 
         bool ok = hasInternet();
@@ -38,7 +43,7 @@ static void netTask(void*) {
 
         // Espera en tramos cortos para notar enseguida si se corta el WiFi.
         uint32_t wait = ok ? CHECK_EVERY_ONLINE_MS : CHECK_EVERY_OFFLINE_MS;
-        for (uint32_t t = 0; t < wait && WiFi.status() == WL_CONNECTED; t += 500) {
+        for (uint32_t t = 0; t < wait && WiFi.status() == WL_CONNECTED && !paused; t += 500) {
             vTaskDelay(pdMS_TO_TICKS(500));
         }
     }
@@ -50,3 +55,4 @@ void NetStatus::init() {
 }
 
 NetState NetStatus::get() { return state; }
+void NetStatus::setPaused(bool p) { paused = p; }

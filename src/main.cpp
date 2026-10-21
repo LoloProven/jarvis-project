@@ -38,6 +38,7 @@ void loop() {
     // Esto corre siempre, con la pantalla encendida o apagada.
     PowerManager::checkButton();
     PowerManager::updateBattery();        // lee el AXP2101 cada 30 s
+    PowerManager::lowPowerTick();         // pantalla apagada hace rato: apaga el WiFi
     StepCounter::loop();                  // los pasos se cuentan en su propia tarea
     TimeSync::loop();
     AlarmManager::checkAlarms();          // si suena con la pantalla apagada, la enciende
