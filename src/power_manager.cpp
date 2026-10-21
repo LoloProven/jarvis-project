@@ -16,6 +16,7 @@ void PowerManager::init() {
         PMU.setBLDO1Voltage(3300); PMU.enableBLDO1();
         PMU.setBLDO2Voltage(3300); PMU.enableBLDO2();
         PMU.enableBattVoltageMeasure();
+        PMU.enableBattDetection();          // necesario para el porcentaje (como el ejemplo 05)
 
         // Mantener apretado PWR 4 s = apagado total por hardware (no pasa por el software).
         PMU.setPowerKeyPressOffTime(XPOWERS_POWEROFF_4S);
@@ -57,6 +58,22 @@ void PowerManager::checkInactivity() {
         turnScreenOff();
     }
 }
+
+static const unsigned long BATTERY_READ_MS = 30000;
+static int battPercent = -1;
+static bool battCharging = false;
+static unsigned long lastBatteryRead = 0;
+
+void PowerManager::updateBattery() {
+    if (lastBatteryRead != 0 && millis() - lastBatteryRead < BATTERY_READ_MS) return;
+    lastBatteryRead = millis();
+    battPercent = PMU.isBatteryConnect() ? PMU.getBatteryPercent() : -1;
+    if (battPercent > 100) battPercent = 100;
+    battCharging = PMU.isCharging();
+}
+
+int PowerManager::batteryPercent() { return battPercent; }
+bool PowerManager::isCharging() { return battCharging; }
 
 void PowerManager::notifyActivity() { lastActivity = millis(); }
 bool PowerManager::isScreenOff() { return screenOff; }

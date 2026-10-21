@@ -10,6 +10,8 @@
 
 static unsigned long lastClockUpdate = 0;
 static NetState lastNetState = NET_NO_WIFI;
+static int lastBattery = -2;
+static bool lastCharging = false;
 // Después de despertar con un toque, se ignora la pantalla hasta que se suelte el dedo,
 // así el toque que despierta no activa el botón que quedó debajo.
 static bool ignoreUntilRelease = false;
@@ -35,6 +37,7 @@ void setup() {
 void loop() {
     // Esto corre siempre, con la pantalla encendida o apagada.
     PowerManager::checkButton();
+    PowerManager::updateBattery();        // lee el AXP2101 cada 30 s
     TimeSync::loop();
     AlarmManager::checkAlarms();          // si suena con la pantalla apagada, la enciende
 
@@ -71,6 +74,14 @@ void loop() {
         bool wifiChanged = (net == NET_NO_WIFI) != (lastNetState == NET_NO_WIFI);
         lastNetState = net;
         DisplayUI::refreshNetStatus(wifiChanged);
+    }
+
+    int batt = PowerManager::batteryPercent();
+    bool charging = PowerManager::isCharging();
+    if (batt != lastBattery || charging != lastCharging) {
+        lastBattery = batt;
+        lastCharging = charging;
+        DisplayUI::refreshBottomBar();
     }
 
     if (DisplayUI::getCurrentScreen() == SCREEN_DASHBOARD && millis() - lastClockUpdate > 1000) {

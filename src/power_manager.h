@@ -18,6 +18,11 @@ public:
     static bool isScreenOff();
     static XPowersPMU& getPMU();
 
+    // Batería (se lee del AXP2101 cada BATTERY_READ_MS desde updateBattery()).
+    static void updateBattery();
+    static int batteryPercent();        // 0-100, o -1 si no hay batería conectada
+    static bool isCharging();
+
 private:
     static XPowersPMU PMU;
     static bool screenOff;

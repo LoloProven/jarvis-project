@@ -61,6 +61,8 @@ static Profile profiles[4] = {
     {"Lucia",  PAL_LILA,    225, 210, 150, 150}
 };
 
+static void drawBattery(Arduino_GFX* g, int x, int y);   // definida junto a la barra inferior
+
 // Pestaña del dashboard: activa en acento con texto oscuro, inactiva en tarjeta con texto claro.
 static void drawTab(Arduino_GFX* g, int x, int w, int textX, const char* label, bool active) {
     g->fillRect(x, 65, w, 38, active ? PAL_ACENTO : PAL_TARJETA);
@@ -114,6 +116,8 @@ void DisplayUI::drawProfileMenu() {
     gfx->setTextSize(2);
     gfx->setCursor(95, 420);
     gfx->print("CONFIGURAR WIFI");
+
+    drawBattery(gfx, 182, 6);   // arriba al centro, lejos de las esquinas redondeadas
 }
 
 void DisplayUI::drawHeaderClockOnly() {
@@ -310,11 +314,48 @@ void DisplayUI::drawDashboard() {
         gfx->print("MANTENER");
     }
 
-    gfx->fillRoundRect(100, 430, 210, 45, 12, PAL_ALERTA);
+    drawBottomBar();
+}
+
+// --- BARRA INFERIOR DEL DASHBOARD (debajo de la caja, que termina en y=410) ---
+// Izquierda: pasos y distancia. Centro: batería. Derecha: botón Salir.
+// Abajo las esquinas redondeadas tapan ~35-45 px, por eso nada pasa de x 60..350.
+static const int BAR_Y        = 428;
+static const int BAR_H        = 48;
+static const int SALIR_X      = 265;
+static const int SALIR_W      = 85;
+static const int BATT_X       = 200;
+
+// "85%" con color según el nivel; "+" y celeste si está cargando; "--" sin batería.
+static void drawBattery(Arduino_GFX* g, int x, int y) {
+    int pct = PowerManager::batteryPercent();
+    uint16_t color = PowerManager::isCharging() ? PAL_CELESTE
+                   : pct < 0   ? PAL_LILA
+                   : pct > 50  ? PAL_OK
+                   : pct >= 20 ? PAL_AMARILLO
+                   : PAL_ALERTA;
+    g->setTextColor(color);
+    g->setTextSize(2);
+    g->setCursor(x, y);
+    if (pct < 0) g->print("--");
+    else g->printf("%d%%%s", pct, PowerManager::isCharging() ? "+" : "");
+}
+
+void DisplayUI::drawBottomBar() {
+    gfx->fillRect(40, BAR_Y - 6, LCD_WIDTH - 80, BAR_H + 10, PAL_FONDO);
+
+    drawBattery(gfx, BATT_X, BAR_Y + 16);
+
+    gfx->fillRoundRect(SALIR_X, BAR_Y, SALIR_W, 45, 12, PAL_ALERTA);
     gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(2);
-    gfx->setCursor(120, 442);
-    gfx->print("Cerrar Sesion");
+    gfx->setCursor(SALIR_X + (SALIR_W - 5 * 12) / 2, BAR_Y + 15);
+    gfx->print("Salir");
+}
+
+void DisplayUI::refreshBottomBar() {
+    if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
+    drawBottomBar();
 }
 
 void DisplayUI::drawWifiPortalScreen() {
@@ -495,7 +536,7 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
             return;
         }
 
-        if (tx >= 100 && tx <= 310 && ty >= 430 && ty <= 475) {
+        if (tx >= SALIR_X && tx <= SALIR_X + SALIR_W && ty >= BAR_Y && ty <= BAR_Y + 45) {
             TouchDriver::waitForRelease();
             activeProfile = -1;
             currentScreen = SCREEN_PROFILES;
