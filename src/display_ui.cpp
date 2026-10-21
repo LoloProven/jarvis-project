@@ -379,7 +379,7 @@ void DisplayUI::drawWifiPortalScreen() {
     gfx->fillScreen(PAL_FONDO);
     gfx->setTextColor(PAL_CELESTE);
     gfx->setTextSize(2);
-    gfx->setCursor(35, 40);
+    gfx->setCursor((LCD_WIDTH - 15 * 12) / 2, 40);   // centrado: en x=35 lo tapaba la esquina
     gfx->print("CONFIGURAR WIFI");
 
     gfx->setTextColor(PAL_TEXTO_CLARO);
@@ -409,16 +409,18 @@ void DisplayUI::triggerAlarmRinging(int alarmIdx) {
     gfx->fillScreen(PAL_ALERTA);
     gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(4);
-    gfx->setCursor(80, 50); gfx->print("ALARMA!");
+    gfx->setCursor((LCD_WIDTH - 7 * 24) / 2, 50); gfx->print("ALARMA!");
 
     gfx->setTextSize(6);
-    gfx->setCursor(110, 120);
+    gfx->setCursor((LCD_WIDTH - 5 * 36) / 2, 120);
     gfx->printf("%02d:%02d", AlarmManager::alarmList[alarmIdx].hour, AlarmManager::alarmList[alarmIdx].minute);
 
-    gfx->fillRoundRect(20, 220, 370, 240, 20, PAL_TEXTO);
+    // Caja más angosta y más corta que antes (20..390 x 220..460) para que las
+    // esquinas redondeadas de abajo no le coman los bordes.
+    gfx->fillRoundRect(40, 220, LCD_WIDTH - 80, 225, 20, PAL_TEXTO);
     gfx->setTextColor(PAL_ALERTA);
     gfx->setTextSize(4);
-    gfx->setCursor(65, 310); gfx->print("DESACTIVAR");
+    gfx->setCursor((LCD_WIDTH - 10 * 24) / 2, 315); gfx->print("DESACTIVAR");
 
     while (true) {
         AudioManager::playTone(AudioManager::masterVolume);
