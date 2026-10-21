@@ -243,17 +243,37 @@ static void drawMusicButton(Arduino_GFX* g, const MusicButton& b, uint16_t fill,
     g->print(b.label);
 }
 
-static void drawMusicTab(Arduino_GFX* g) {
+// Imprime hasta maxChars caracteres; si el texto es más largo, lo corta con "..".
+static void printFit(Arduino_GFX* g, const char* s, int maxChars) {
+    int n = strlen(s);
+    if (n <= maxChars) { g->print(s); return; }
+    for (int i = 0; i < maxChars - 2; i++) g->print(s[i]);
+    g->print("..");
+}
+
+static uint32_t lastTrackVersion = 0;
+
+// Zona de arriba de la pestaña: la canción que suena (o cómo vincular el reloj).
+static void drawMusicStatus(Arduino_GFX* g) {
     bool conn = MediaRemote::isConnected();
     lastMusicConnected = conn;
+    lastTrackVersion = MediaRemote::trackInfoVersion();
     g->fillRect(20, 118, LCD_WIDTH - 40, 90, PAL_FONDO);   // zona del estado
     g->setTextSize(2);
-    if (conn) {
+    if (conn && MediaRemote::title()[0]) {
+        // Entran 29 letras de 12 px entre x=30 y x=380.
+        g->setTextColor(PAL_CELESTE);
+        g->setCursor(30, 128); printFit(g, MediaRemote::title(), 29);
+        g->setTextColor(PAL_LILA);
+        g->setCursor(30, 154); printFit(g, MediaRemote::artist(), 29);
+        g->setTextColor(MediaRemote::isPlaying() ? PAL_MENTA : PAL_AMARILLO);
+        g->setCursor(30, 182); g->print(MediaRemote::isPlaying() ? "Sonando" : "En pausa");
+    } else if (conn) {
         g->setTextColor(PAL_MENTA);
         g->setCursor(30, 130); g->print("Conectado al celular");
         g->setTextColor(PAL_LILA);
-        g->setCursor(30, 160); g->print("Controla Spotify u otra");
-        g->setCursor(30, 182); g->print("app de musica");
+        g->setCursor(30, 160); g->print("Pone algo en Spotify u");
+        g->setCursor(30, 182); g->print("otra app de musica");
     } else {
         g->setTextColor(PAL_AMARILLO);
         g->setCursor(30, 130); g->print("Sin conectar");
@@ -261,6 +281,11 @@ static void drawMusicTab(Arduino_GFX* g) {
         g->setCursor(30, 160); g->print("En el celular: Ajustes >");
         g->setCursor(30, 182); g->print("Bluetooth > JARVIS Reloj");
     }
+}
+
+static void drawMusicTab(Arduino_GFX* g) {
+    bool conn = MediaRemote::isConnected();
+    drawMusicStatus(g);
     for (int i = 0; i < MUSIC_BUTTON_COUNT; i++) {
         if (conn) drawMusicButton(g, MUSIC_BUTTONS[i], PAL_ACENTO, PAL_TEXTO);
         else      drawMusicButton(g, MUSIC_BUTTONS[i], PAL_TARJETA, PAL_LILA);   // deshabilitados
@@ -318,7 +343,8 @@ void DisplayUI::musicTick() {
 // Si cambia el estado de la conexión Bluetooth con la pestaña a la vista, se redibuja.
 void DisplayUI::refreshMusicTab() {
     if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD || currentTab != TAB_MUSIC) return;
-    if (MediaRemote::isConnected() != lastMusicConnected) drawMusicTab(gfx);
+    if (MediaRemote::isConnected() != lastMusicConnected) drawMusicTab(gfx);   // botones incluidos
+    else if (MediaRemote::trackInfoVersion() != lastTrackVersion) drawMusicStatus(gfx);   // solo la canción
 }
 
 void DisplayUI::drawDashboard() {

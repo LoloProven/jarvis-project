@@ -1,6 +1,8 @@
 #ifndef MEDIA_REMOTE_H
 #define MEDIA_REMOTE_H
 
+#include <stdint.h>
+
 // Control remoto de música por Bluetooth LE. El reloj se presenta ante el celular como
 // un teclado multimedia (HID) con 5 teclas; Spotify (o cualquier app) responde igual que
 // a los botones de los auriculares. El audio sigue yendo del celular a los auriculares:
@@ -17,6 +19,12 @@ public:
     static bool isEnabled();       // el Bluetooth está prendido (impide el sueño liviano)
     static bool isConnected();
     static void press(Key key);
+
+    // Canción que suena en el iPhone (servicio AMS de Apple). Vacío si no se sabe.
+    static const char* title();
+    static const char* artist();
+    static bool isPlaying();
+    static uint32_t trackInfoVersion();   // cambia cada vez que cambia algo de lo de arriba
 };
 
 #endif
