@@ -92,7 +92,7 @@ enum WidgetTab {
     TAB_AGENDA,
     TAB_CHRONO,
     TAB_ADD_ALARM,
-    TAB_AUDIO
+    TAB_MUSIC      // control de la música del celular por Bluetooth (reemplazó a VOZ)
 };
 
 // --- PERFIL VISUAL (avatar del menú) ---
