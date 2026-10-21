@@ -1,5 +1,6 @@
 #include "time_sync.h"
 #include "config.h"
+#include "i2c_lock.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <Wire.h>
@@ -86,6 +87,7 @@ void TimeSync::loop() {
         struct tm now;
         if (getLocalTime(&now, 0)) {
             // setDateTime también borra el bit OS, así la próxima vez se confía en el RTC.
+            I2CLock lock;                    // el I2C se comparte con la tarea de pasos
             rtc.setDateTime(now.tm_year + 1900, now.tm_mon + 1, now.tm_mday,
                             now.tm_hour, now.tm_min, now.tm_sec);
             rtcValid = true;

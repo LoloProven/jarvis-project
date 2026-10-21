@@ -1,6 +1,7 @@
 #include "power_manager.h"
 #include "config.h"
 #include "display_ui.h"
+#include "i2c_lock.h"
 
 XPowersPMU PowerManager::PMU;
 bool PowerManager::screenOff = false;
@@ -40,11 +41,19 @@ void PowerManager::turnScreenOn(bool redraw) {
 }
 
 void PowerManager::checkButton() {
-    // getIrqStatus() actualiza los registros internos de la librería
-    PMU.getIrqStatus();
-    bool shortPress = PMU.isPekeyShortPressIrq();
-    PMU.clearIrqStatus();
-    if (shortPress) {
+    bool shortPress;
+    {
+        I2CLock lock;                        // el I2C se comparte con la tarea de pasos
+        // getIrqStatus() actualiza los registros internos de la librería
+        PMU.getIrqStatus();
+        shortPress = PMU.isPekeyShortPressIrq();
+        PMU.clearIrqStatus();
+    }
+    // Protección extra: dos toques de PWR a menos de 400 ms no son de una persona; así
+    // una lectura mala nunca puede dejar la pantalla prendiendo y apagando sin parar.
+    static unsigned long lastPress = 0;
+    if (shortPress && millis() - lastPress > 400) {
+        lastPress = millis();
         if (screenOff) turnScreenOn();
         else turnScreenOff();
     }
@@ -64,6 +73,7 @@ static unsigned long lastBatteryRead = 0;
 void PowerManager::updateBattery() {
     if (lastBatteryRead != 0 && millis() - lastBatteryRead < BATTERY_READ_MS) return;
     lastBatteryRead = millis();
+    I2CLock lock;                            // el I2C se comparte con la tarea de pasos
     battPercent = PMU.isBatteryConnect() ? PMU.getBatteryPercent() : -1;
     if (battPercent > 100) battPercent = 100;
     battCharging = PMU.isCharging();

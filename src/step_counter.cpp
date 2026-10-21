@@ -1,5 +1,6 @@
 #include "step_counter.h"
 #include "config.h"
+#include "i2c_lock.h"
 #include <Wire.h>
 #include <Preferences.h>
 #include "time.h"
@@ -102,9 +103,12 @@ static void stepTask(void*) {
     for (;;) {
         unsigned long now = millis();
         float ax, ay, az;
-        if (qmi.getAccelerometer(ax, ay, az)) {
-            onSample(sqrtf(ax * ax + ay * ay + az * az), now);
+        bool ok;
+        {
+            I2CLock lock;                        // el I2C se comparte con el loop (touch, PMU)
+            ok = qmi.getAccelerometer(ax, ay, az);
         }
+        if (ok) onSample(sqrtf(ax * ax + ay * ay + az * az), now);
 
         // Medianoche (o la hora pasó a ser la real por NTP/RTC y cambió el día): de nuevo a 0.
         if (now - lastDayCheck >= 2000) {
