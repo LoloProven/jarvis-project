@@ -14,6 +14,7 @@ static NetState lastNetState = NET_NO_WIFI;
 static int lastBattery = -2;
 static bool lastCharging = false;
 static uint32_t lastSteps = 0;
+static int lastSpeedTenths = 0;
 // Después de despertar con un toque, se ignora la pantalla hasta que se suelte el dedo,
 // así el toque que despierta no activa el botón que quedó debajo.
 static bool ignoreUntilRelease = false;
@@ -41,7 +42,7 @@ void loop() {
     // Esto corre siempre, con la pantalla encendida o apagada.
     PowerManager::checkButton();
     PowerManager::updateBattery();        // lee el AXP2101 cada 30 s
-    StepCounter::loop();                  // lee el podómetro cada 2 s
+    StepCounter::loop();                  // los pasos se cuentan en su propia tarea
     TimeSync::loop();
     AlarmManager::checkAlarms();          // si suena con la pantalla apagada, la enciende
 
@@ -83,10 +84,12 @@ void loop() {
     int batt = PowerManager::batteryPercent();
     bool charging = PowerManager::isCharging();
     uint32_t steps = StepCounter::steps();
-    if (batt != lastBattery || charging != lastCharging || steps != lastSteps) {
+    int speedTenths = (int)(StepCounter::speedKmh() * 10);   // cambia aunque no haya pasos nuevos (al frenar)
+    if (batt != lastBattery || charging != lastCharging || steps != lastSteps || speedTenths != lastSpeedTenths) {
         lastBattery = batt;
         lastCharging = charging;
         lastSteps = steps;
+        lastSpeedTenths = speedTenths;
         DisplayUI::refreshBottomBar();
     }
 

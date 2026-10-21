@@ -319,13 +319,14 @@ void DisplayUI::drawDashboard() {
 }
 
 // --- BARRA INFERIOR DEL DASHBOARD (debajo de la caja, que termina en y=410) ---
-// Izquierda: pasos y distancia. Centro: batería. Derecha: botón Salir.
-// Abajo las esquinas redondeadas tapan ~35-45 px, por eso nada pasa de x 60..350.
+// Izquierda: pasos y distancia. Centro: batería y velocidad. Derecha: botón Salir.
+// Abajo las esquinas redondeadas tapan ~35-45 px, por eso nada pasa de x 55..350.
 static const int BAR_Y        = 428;
 static const int BAR_H        = 48;
-static const int SALIR_X      = 265;
-static const int SALIR_W      = 85;
-static const int BATT_X       = 200;
+static const int STEPS_X      = 55;
+static const int BATT_X       = 192;      // también la velocidad, en el renglón de abajo
+static const int SALIR_X      = 282;
+static const int SALIR_W      = 68;
 
 // "85%" con color según el nivel; "+" y celeste si está cargando; "--" sin batería.
 static void drawBattery(Arduino_GFX* g, int x, int y) {
@@ -349,18 +350,25 @@ void DisplayUI::drawBottomBar() {
     gfx->setTextSize(2);
     if (StepCounter::available()) {
         gfx->setTextColor(PAL_MENTA);
-        gfx->setCursor(60, BAR_Y + 2);
+        gfx->setCursor(STEPS_X, BAR_Y + 2);
         gfx->printf("%lu pasos", (unsigned long)StepCounter::steps());
         gfx->setTextColor(PAL_TEXTO_CLARO);
-        gfx->setCursor(60, BAR_Y + 26);
+        gfx->setCursor(STEPS_X, BAR_Y + 26);
         gfx->printf("%.2f km", StepCounter::distanceKm());
+
+        // Velocidad estimada con el ritmo de pasos (sin GPS). Hasta 7 caracteres.
+        float v = StepCounter::speedKmh();
+        gfx->setTextColor(v > 0 ? PAL_CELESTE : PAL_LILA);
+        gfx->setCursor(BATT_X, BAR_Y + 26);
+        if (v >= 10) gfx->printf("%.0fkm/h", v);
+        else gfx->printf("%.1fkm/h", v);
     } else {
         gfx->setTextColor(PAL_LILA);
-        gfx->setCursor(60, BAR_Y + 16);
+        gfx->setCursor(STEPS_X, BAR_Y + 16);
         gfx->print("sin sensor");
     }
 
-    drawBattery(gfx, BATT_X, BAR_Y + 16);
+    drawBattery(gfx, BATT_X, BAR_Y + 2);
 
     gfx->fillRoundRect(SALIR_X, BAR_Y, SALIR_W, 45, 12, PAL_ALERTA);
     gfx->setTextColor(PAL_TEXTO);
