@@ -229,7 +229,10 @@ void MediaRemote::press(Key key) {
     uint8_t report[2] = { (uint8_t)(bits & 0xFF), (uint8_t)(bits >> 8) };
     inputMedia->setValue(report, 2);
     inputMedia->notify();
-    report[0] = report[1] = 0;               // soltar enseguida (como ESP32-BLE-Keyboard)
+    // Hace falta una pausa entre "apretar" y "soltar": sin ella el iPhone no registra la
+    // tecla (ESP32-BLE-Keyboard también espera después de cada envío).
+    delay(30);
+    report[0] = report[1] = 0;
     inputMedia->setValue(report, 2);
     inputMedia->notify();
 }

@@ -298,17 +298,17 @@ static void drawMusicTab(Arduino_GFX* g) {
 static const unsigned long MUSIC_HOLD_GAP_MS  = 90;
 static const unsigned long MUSIC_REPEAT_AFTER = 450;   // mantener volumen: empieza a repetir...
 static const unsigned long MUSIC_REPEAT_EVERY = 150;   // ...y repite cada 150 ms
-static const unsigned long MUSIC_FLASH_MS     = 120;
+static const unsigned long MUSIC_FLASH_MS     = 200;   // blanco al apretar: en menta casi no se distinguía del celeste
 static int musicHeld = -1;                 // botón que se está apretando
 static unsigned long musicLastTouch = 0, musicHeldSince = 0, musicLastSend = 0;
-static int musicFlash = -1;                // botón pintado de menta
+static int musicFlash = -1;                // botón pintado de blanco
 static unsigned long musicFlashUntil = 0;
 
 static void musicSend(Arduino_GFX* g, int i) {
     const MusicButton& b = MUSIC_BUTTONS[i];
     MediaRemote::press(b.key);
     musicLastSend = millis();
-    drawMusicButton(g, b, PAL_MENTA, PAL_TEXTO);
+    drawMusicButton(g, b, PAL_TEXTO_CLARO, PAL_TEXTO);
     musicFlash = i;
     musicFlashUntil = millis() + MUSIC_FLASH_MS;
 }
@@ -728,7 +728,7 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
 
         // MÚSICA: la tecla se manda apenas se toca, sin esperar a que se suelte el dedo
         // (antes waitForRelease frenaba hasta 0,8 s y no se podía apretar rápido).
-        // Mantener VOL+/VOL- repite la tecla. El botón titila en menta (ver musicTick).
+        // Mantener VOL+/VOL- repite la tecla. El botón titila en blanco (ver musicTick).
         if (currentTab == TAB_MUSIC && MediaRemote::isConnected()) {
             for (int i = 0; i < MUSIC_BUTTON_COUNT; i++) {
                 const MusicButton& b = MUSIC_BUTTONS[i];
