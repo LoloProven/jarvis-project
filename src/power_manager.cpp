@@ -4,9 +4,13 @@
 #include "i2c_lock.h"
 #include "net_status.h"
 #include "wifi_portal.h"
+#include "touch_driver.h"
+#include <esp_sleep.h>
+#include <driver/gpio.h>
 
 XPowersPMU PowerManager::PMU;
 bool PowerManager::screenOff = false;
+bool PowerManager::sleeping = false;
 unsigned long PowerManager::lastActivity = 0;
 
 void PowerManager::init() {
@@ -18,9 +22,11 @@ void PowerManager::init() {
         PMU.enableBattVoltageMeasure();
         PMU.enableBattDetection();          // necesario para el porcentaje (como el ejemplo 05)
 
-        // Mantener apretado PWR 4 s = apagado total por hardware (no pasa por el software).
+        // Botón PWR: toque corto = pantalla; 1,5 s = modo dormir; 4 s = apagado total
+        // por hardware (ese no pasa por el software).
         PMU.setPowerKeyPressOffTime(XPOWERS_POWEROFF_4S);
-        PMU.enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ);
+        PMU.setIrqLevelTime(XPOWERS_AXP2101_IRQ_TIME_1S5);
+        PMU.enableIRQ(XPOWERS_AXP2101_PKEY_SHORT_IRQ | XPOWERS_AXP2101_PKEY_LONG_IRQ);
         PMU.clearIrqStatus();
     }
     lastActivity = millis();
@@ -44,6 +50,7 @@ void PowerManager::turnScreenOff() {
 
 void PowerManager::turnScreenOn(bool redraw) {
     lastActivity = millis();
+    sleeping = false;                        // prender la pantalla siempre sale del modo dormir
     if (!screenOff) return;
     screenOff = false;
     setCpuFrequencyMhz(240);
@@ -54,28 +61,76 @@ void PowerManager::turnScreenOn(bool redraw) {
 }
 
 void PowerManager::lowPowerTick() {
-    if (!screenOff || WiFiPortal::isSuspended()) return;
+    if (!screenOff || sleeping) return;
     if (DisplayUI::getCurrentScreen() == SCREEN_WIFI_CONFIG) return;   // el portal necesita WiFi
-    if (millis() - screenOffSince > WIFI_OFF_AFTER_MS) WiFiPortal::suspend();
+    unsigned long off = millis() - screenOffSince;
+    if (off > SLEEP_AFTER_MS) enterSleep();
+    else if (off > WIFI_OFF_AFTER_MS && !WiFiPortal::isSuspended()) WiFiPortal::suspend();
+}
+
+// --- MODO DORMIR ---
+// Sueño liviano del ESP32: gasta muy poco, pero no se reinicia (hora, cronómetro y
+// alarmas siguen). Se despierta solo cada segundo para mirar el botón PWR y las
+// alarmas, y al instante si se toca la pantalla o se aprieta BOOT.
+// (Con el apagado total de 4 s no hay corriente y ninguna alarma puede sonar.)
+static const gpio_num_t BOOT_BUTTON = GPIO_NUM_0;
+
+void PowerManager::enterSleep() {
+    if (sleeping) return;
+    if (DisplayUI::getCurrentScreen() == SCREEN_WIFI_CONFIG) return;   // el portal necesita WiFi
+    if (!screenOff) {
+        DisplayUI::showSleepMessage();           // aviso breve antes de apagar
+        delay(1200);
+    }
+    turnScreenOff();
+    WiFiPortal::suspend();
+    pinMode(BOOT_BUTTON, INPUT_PULLUP);
+    sleeping = true;
+}
+
+PowerManager::WakeReason PowerManager::sleepTick() {
+    {
+        I2CLock lock;                            // que no quede ninguna lectura I2C a medias
+        detachInterrupt(digitalPinToInterrupt(TP_INT));
+        gpio_wakeup_enable((gpio_num_t)TP_INT, GPIO_INTR_LOW_LEVEL);   // toque en la pantalla
+        gpio_wakeup_enable(BOOT_BUTTON, GPIO_INTR_LOW_LEVEL);             // botón BOOT
+        esp_sleep_enable_gpio_wakeup();
+        esp_sleep_enable_timer_wakeup(1000000);                        // 1 s
+        esp_light_sleep_start();
+        gpio_wakeup_disable((gpio_num_t)TP_INT);
+        gpio_wakeup_disable(BOOT_BUTTON);
+    }
+    TouchDriver::init();                         // vuelve a enganchar la interrupción del touch
+
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_GPIO) {
+        bool boot = digitalRead(BOOT_BUTTON) == LOW;
+        turnScreenOn();
+        return boot ? WAKE_BUTTON : WAKE_TOUCH;
+    }
+    checkButton();                               // PWR (corto o largo) también despierta
+    return sleeping ? WAKE_NONE : WAKE_BUTTON;
 }
 
 void PowerManager::checkButton() {
-    bool shortPress;
+    bool shortPress, longPress;
     {
         I2CLock lock;                        // el I2C se comparte con la tarea de pasos
         // getIrqStatus() actualiza los registros internos de la librería
         PMU.getIrqStatus();
         shortPress = PMU.isPekeyShortPressIrq();
+        longPress = PMU.isPekeyLongPressIrq();
         PMU.clearIrqStatus();
     }
     // Protección extra: dos toques de PWR a menos de 400 ms no son de una persona; así
     // una lectura mala nunca puede dejar la pantalla prendiendo y apagando sin parar.
     static unsigned long lastPress = 0;
-    if (shortPress && millis() - lastPress > 400) {
-        lastPress = millis();
-        if (screenOff) turnScreenOn();
-        else turnScreenOff();
-    }
+    if (!(shortPress || longPress) || millis() - lastPress <= 400) return;
+    lastPress = millis();
+
+    if (sleeping) turnScreenOn();            // cualquier toque de PWR despierta
+    else if (longPress) enterSleep();        // 1,5 s: modo dormir
+    else if (screenOff) turnScreenOn();
+    else turnScreenOff();
 }
 
 void PowerManager::checkInactivity() {
@@ -103,4 +158,5 @@ bool PowerManager::isCharging() { return battCharging; }
 
 void PowerManager::notifyActivity() { lastActivity = millis(); }
 bool PowerManager::isScreenOff() { return screenOff; }
+bool PowerManager::isSleeping() { return sleeping; }
 XPowersPMU& PowerManager::getPMU() { return PMU; }

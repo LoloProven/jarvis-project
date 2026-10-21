@@ -428,6 +428,19 @@ void DisplayUI::refreshBottomBar() {
     updateBarFields(gfx, false);
 }
 
+void DisplayUI::showSleepMessage() {
+    if (PowerManager::isScreenOff()) return;
+    gfx->fillScreen(PAL_FONDO);
+    gfx->setTextColor(PAL_LILA);
+    gfx->setTextSize(3);
+    gfx->setCursor((LCD_WIDTH - 11 * 18) / 2, 200);
+    gfx->print("Modo dormir");
+    gfx->setTextColor(PAL_TEXTO_CLARO);
+    gfx->setTextSize(2);
+    gfx->setCursor((LCD_WIDTH - 19 * 12) / 2, 250);
+    gfx->print("Toca para despertar");
+}
+
 void DisplayUI::drawWifiPortalScreen() {
     if (PowerManager::isScreenOff()) return;   // se dibuja al encender
     gfx->fillScreen(PAL_FONDO);

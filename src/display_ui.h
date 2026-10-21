@@ -15,6 +15,7 @@ public:
     static void refreshNetStatus(bool wifiChanged);   // solo si se ve el dashboard
     static void refreshBottomBar();                   // pasos y batería; solo si se ve el dashboard
     static void drawWifiPortalScreen();
+    static void showSleepMessage();      // aviso antes de entrar en modo dormir
     static void triggerAlarmRinging(int alarmIdx);
     static void handleTouch(int16_t x, int16_t y);
 

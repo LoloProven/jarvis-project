@@ -35,6 +35,14 @@ void setup() {
 }
 
 void loop() {
+    // Modo dormir: duerme de a 1 s y entre medio solo mira PWR y las alarmas.
+    if (PowerManager::isSleeping()) {
+        PowerManager::WakeReason why = PowerManager::sleepTick();
+        AlarmManager::checkAlarms();          // si suena, prende la pantalla y sale del modo dormir
+        if (why == PowerManager::WAKE_TOUCH) ignoreUntilRelease = true;   // ese toque solo despierta
+        return;
+    }
+
     // Esto corre siempre, con la pantalla encendida o apagada.
     PowerManager::checkButton();
     PowerManager::updateBattery();        // lee el AXP2101 cada 30 s

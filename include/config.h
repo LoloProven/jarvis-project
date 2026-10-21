@@ -38,6 +38,8 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 
 // Con la pantalla apagada: a los 5 minutos se apaga el WiFi (se reconecta al prenderla).
 #define WIFI_OFF_AFTER_MS  300000UL
+// ...y a los 30 minutos entra en modo dormir (gasta muy poco; las alarmas suenan igual).
+#define SLEEP_AFTER_MS     1800000UL
 
 // Largo de un paso para calcular la distancia (cm). Ajustalo a tu paso:
 // caminá 10 pasos, medí la distancia y dividila por 10.
