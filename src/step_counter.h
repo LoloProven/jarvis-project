@@ -13,6 +13,7 @@ public:
     static float distanceKm();      // pasos * STEP_LENGTH_CM
     static float speedKmh();        // estimada con el ritmo de los últimos 10 s (0 si estás quieto)
     static bool available();        // false si no se encontró el sensor
+    static bool takeWristRaise();   // true una vez por cada vez que se levanta la muñeca
 };
 
 #endif

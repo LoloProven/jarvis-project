@@ -9,6 +9,7 @@
 #include "net_status.h"
 #include "step_counter.h"
 #include "media_remote.h"
+#include "settings.h"
 
 static const int TAB_W = 88;   // 4 pestañas de 88 px
 #include <WiFi.h>
@@ -78,6 +79,7 @@ static void drawTab(Arduino_GFX* g, int x, int w, int textX, const char* label, 
 
 void DisplayUI::init() {
     gfx->begin();
+    Settings::applyBrightness();   // brillo guardado (Settings::load() ya se llamó)
 }
 
 Arduino_GFX* DisplayUI::getGFX() { return gfx; }
@@ -96,6 +98,7 @@ void DisplayUI::refreshCurrentScreen() {
     if (currentScreen == SCREEN_PROFILES) drawProfileMenu();
     else if (currentScreen == SCREEN_DASHBOARD) drawDashboard();
     else if (currentScreen == SCREEN_WIFI_CONFIG) drawWifiPortalScreen();
+    else if (currentScreen == SCREEN_SETTINGS) drawSettingsScreen();
 }
 
 void DisplayUI::drawAvatar(int x, int y, uint16_t color, const char* name) {
@@ -117,11 +120,64 @@ void DisplayUI::drawProfileMenu() {
     }
     gfx->fillRoundRect(50, 400, 310, 60, 12, PAL_ACENTO);
     gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(2);
-    gfx->setCursor(95, 420);
-    gfx->print("CONFIGURAR WIFI");
+    gfx->setTextSize(3);
+    gfx->setCursor(50 + (310 - 7 * 18) / 2, 418);
+    gfx->print("AJUSTES");
 
     drawBattery(gfx, 182, 6);   // arriba al centro, lejos de las esquinas redondeadas
+}
+
+// --- PANTALLA AJUSTES ---
+// Cada ajuste: título y una fila [ - ]  valor  [ + ] con botones grandes.
+static const int SET_MINUS_X = 50, SET_PLUS_X = 270, SET_BTN_W = 90, SET_BTN_H = 60;
+static const int SET_BRIGHT_Y = 95, SET_VOLUME_Y = 215;      // fila de botones de cada ajuste
+static const int SET_WIFI_Y = 320, SET_BACK_Y = 395;          // botones de abajo (alto 55)
+
+static void drawSettingRow(Arduino_GFX* g, const char* title, int y, const char* value) {
+    g->setTextColor(PAL_LILA);
+    g->setTextSize(2);
+    g->setCursor((LCD_WIDTH - strlen(title) * 12) / 2, y - 30);
+    g->print(title);
+    g->fillRoundRect(SET_MINUS_X, y, SET_BTN_W, SET_BTN_H, 12, PAL_ACENTO);
+    g->fillRoundRect(SET_PLUS_X, y, SET_BTN_W, SET_BTN_H, 12, PAL_ACENTO);
+    g->setTextColor(PAL_TEXTO);
+    g->setTextSize(4);
+    g->setCursor(SET_MINUS_X + (SET_BTN_W - 24) / 2, y + 15); g->print("-");
+    g->setCursor(SET_PLUS_X + (SET_BTN_W - 24) / 2, y + 15); g->print("+");
+    // Valor en el medio (se borra antes porque cambia de largo).
+    g->fillRect(SET_MINUS_X + SET_BTN_W + 5, y, SET_PLUS_X - SET_MINUS_X - SET_BTN_W - 10, SET_BTN_H, PAL_FONDO);
+    g->setTextColor(PAL_TEXTO_CLARO);
+    g->setTextSize(3);
+    g->setCursor((LCD_WIDTH - strlen(value) * 18) / 2, y + 18);
+    g->print(value);
+}
+
+static void drawSettingValues(Arduino_GFX* g) {
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%d%%", Settings::brightness() * 100 / Settings::BRIGHTNESS_LEVELS);
+    drawSettingRow(g, "Brillo", SET_BRIGHT_Y, buf);
+    snprintf(buf, sizeof(buf), "%d/10", Settings::alarmVolume());
+    drawSettingRow(g, "Volumen de la alarma", SET_VOLUME_Y, buf);
+}
+
+void DisplayUI::drawSettingsScreen() {
+    if (PowerManager::isScreenOff()) return;
+    gfx->fillScreen(PAL_FONDO);
+    gfx->setTextColor(PAL_CELESTE);
+    gfx->setTextSize(3);
+    gfx->setCursor((LCD_WIDTH - 7 * 18) / 2, 22);
+    gfx->print("AJUSTES");
+    drawSettingValues(gfx);
+
+    gfx->fillRoundRect(60, SET_WIFI_Y, 290, 55, 12, PAL_LILA);
+    gfx->setTextColor(PAL_TEXTO);
+    gfx->setTextSize(2);
+    gfx->setCursor((LCD_WIDTH - 15 * 12) / 2, SET_WIFI_Y + 20);
+    gfx->print("CONFIGURAR WIFI");
+
+    gfx->fillRoundRect(100, SET_BACK_Y, 210, 55, 12, PAL_ALERTA);
+    gfx->setCursor((LCD_WIDTH - 6 * 12) / 2, SET_BACK_Y + 20);
+    gfx->print("VOLVER");
 }
 
 // La hora se llama cada segundo pero solo cambia una vez por minuto: se redibuja
@@ -156,8 +212,13 @@ static const int CHRONO_Y      = 170;
 static const int CHRONO_H      = 40;                  // setTextSize(5): 8 px * 5
 static const int CHRONO_CHAR_W = 30;                  // 6 px * 5
 
+// La pestaña CRONO tiene dos modos: cronómetro y temporizador (selector arriba).
+static bool chronoShowTimer = false;
+
 void DisplayUI::drawChronoDigits() {
-    unsigned long ms = AlarmManager::getChronoTime();
+    // Temporizador: se redondea hacia arriba (con 0,4 s restantes todavía muestra 00:01).
+    unsigned long ms = chronoShowTimer ? AlarmManager::getTimerRemaining() + 999
+                                       : AlarmManager::getChronoTime();
     unsigned long totalSec = ms / 1000;
     int seconds = totalSec % 60;
     int minutes = (totalSec / 60) % 60;
@@ -402,16 +463,40 @@ void DisplayUI::drawDashboard() {
             }
         }
     } else if (currentTab == TAB_CHRONO) {
+        // Selector de modo: [CRONOMETRO | TEMPORIZADOR]
+        gfx->setTextSize(2);
+        gfx->fillRoundRect(25, 118, 178, 36, 8, chronoShowTimer ? PAL_TARJETA : PAL_ACENTO);
+        gfx->fillRoundRect(207, 118, 178, 36, 8, chronoShowTimer ? PAL_ACENTO : PAL_TARJETA);
+        gfx->setTextColor(chronoShowTimer ? PAL_TEXTO_CLARO : PAL_TEXTO);
+        gfx->setCursor(25 + (178 - 10 * 12) / 2, 128); gfx->print("CRONOMETRO");
+        gfx->setTextColor(chronoShowTimer ? PAL_TEXTO : PAL_TEXTO_CLARO);
+        gfx->setCursor(207 + (178 - 12 * 12) / 2, 128); gfx->print("TEMPORIZADOR");
+
         drawChronoDigits();
 
-        gfx->fillRoundRect(45, 290, 130, 50, 10, AlarmManager::isChronoRunning() ? PAL_ALERTA : PAL_OK);
+        if (chronoShowTimer) {
+            // Botones para cargar el tiempo.
+            const char* labels[3] = { "+1 min", "+5 min", "+10 min" };
+            gfx->setTextSize(2);                 // drawChronoDigits dejó el tamaño en 5
+            for (int i = 0; i < 3; i++) {
+                int x = 30 + i * 120;
+                gfx->fillRoundRect(x, 225, 110, 45, 10, PAL_LILA);
+                gfx->setTextColor(PAL_TEXTO);
+                gfx->setCursor(x + (110 - strlen(labels[i]) * 12) / 2, 240);
+                gfx->print(labels[i]);
+            }
+        }
+
+        bool running = chronoShowTimer ? AlarmManager::isTimerRunning() : AlarmManager::isChronoRunning();
+        gfx->fillRoundRect(45, 290, 130, 50, 10, running ? PAL_ALERTA : PAL_OK);
         gfx->setTextColor(PAL_TEXTO);
         gfx->setTextSize(2);
-        gfx->setCursor(60, 305);
-        gfx->print(AlarmManager::isChronoRunning() ? "PAUSA" : "INICIAR");
+        const char* action = running ? "PAUSA" : "INICIAR";
+        gfx->setCursor(45 + (130 - strlen(action) * 12) / 2, 305);
+        gfx->print(action);
 
         gfx->fillRoundRect(235, 290, 130, 50, 10, PAL_LILA);
-        gfx->setCursor(265, 305);
+        gfx->setCursor(235 + (130 - 5 * 12) / 2, 305);
         gfx->print("RESET");
     } else if (currentTab == TAB_ADD_ALARM) {
         gfx->setTextColor(PAL_TEXTO_CLARO);
@@ -423,18 +508,8 @@ void DisplayUI::drawDashboard() {
         gfx->setCursor(40, 155);
         gfx->printf("%02d:%02d", tempHour, tempMinute);
 
-        gfx->setTextSize(2);
-        gfx->setTextColor(PAL_AMARILLO);
-        gfx->setCursor(230, 130);
-        gfx->printf("Vol: %d/10", AudioManager::masterVolume);
-
-        gfx->fillRoundRect(230, 155, 60, 40, 6, PAL_LILA);
-        gfx->fillRoundRect(300, 155, 60, 40, 6, PAL_LILA);
+        // (El volumen de la alarma pasó a la pantalla AJUSTES.)
         gfx->setTextColor(PAL_TEXTO);
-        gfx->setTextSize(3);
-        gfx->setCursor(252, 162); gfx->print("-");
-        gfx->setCursor(322, 162); gfx->print("+");
-
         gfx->fillRoundRect(40, 225, 85, 45, 8, PAL_ACENTO);
         gfx->fillRoundRect(140, 225, 85, 45, 8, PAL_ACENTO);
         gfx->setTextSize(3);
@@ -552,6 +627,28 @@ void DisplayUI::refreshBottomBar() {
     updateBarFields(gfx, false, currentTab == TAB_CHRONO);
 }
 
+// Hora grande en blanco sobre fondo negro, con la fecha abajo. Tamaño 10: cada número
+// mide 60x80 px, "HH:MM" ocupa 300 px y queda centrado lejos de las esquinas.
+void DisplayUI::drawBigClock() {
+    static const char* DAYS[7]    = { "Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab" };
+    static const char* MONTHS[12] = { "ene", "feb", "mar", "abr", "may", "jun",
+                                      "jul", "ago", "sep", "oct", "nov", "dic" };
+    gfx->fillScreen(PAL_FONDO);
+    struct tm t;
+    if (!getLocalTime(&t, 0)) return;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
+    gfx->setTextColor(0xFFFF);                   // blanco puro
+    gfx->setTextSize(10);
+    gfx->setCursor((LCD_WIDTH - 5 * 60) / 2, 170);
+    gfx->print(buf);
+    snprintf(buf, sizeof(buf), "%s %d %s", DAYS[t.tm_wday], t.tm_mday, MONTHS[t.tm_mon]);
+    gfx->setTextColor(PAL_LILA);
+    gfx->setTextSize(3);
+    gfx->setCursor((LCD_WIDTH - strlen(buf) * 18) / 2, 290);
+    gfx->print(buf);
+}
+
 void DisplayUI::showSleepMessage() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);
@@ -589,8 +686,10 @@ void DisplayUI::drawWifiPortalScreen() {
     gfx->setCursor(120, 362); gfx->print("VOLVER");
 }
 
-void DisplayUI::triggerAlarmRinging(int alarmIdx) {
-    // Si la pantalla estaba apagada, se enciende (sin redibujar: la alarma dibuja la suya).
+// Pantalla que suena (alarma o temporizador). Bloquea hasta que se toca un botón y
+// devuelve true si se eligió POSPONER. Al terminar vuelve a la pantalla que había.
+bool DisplayUI::ringScreen(const char* title, const char* timeText, bool allowSnooze) {
+    // Si la pantalla estaba apagada, se enciende (sin redibujar: esta pantalla dibuja la suya).
     PowerManager::turnScreenOn(false);
 
     ScreenState previousScreen = currentScreen;
@@ -600,38 +699,71 @@ void DisplayUI::triggerAlarmRinging(int alarmIdx) {
     gfx->fillScreen(PAL_ALERTA);
     gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(4);
-    gfx->setCursor((LCD_WIDTH - 7 * 24) / 2, 50); gfx->print("ALARMA!");
-
+    gfx->setCursor((LCD_WIDTH - strlen(title) * 24) / 2, 50); gfx->print(title);
     gfx->setTextSize(6);
-    gfx->setCursor((LCD_WIDTH - 5 * 36) / 2, 120);
-    gfx->printf("%02d:%02d", AlarmManager::alarmList[alarmIdx].hour, AlarmManager::alarmList[alarmIdx].minute);
+    gfx->setCursor((LCD_WIDTH - strlen(timeText) * 36) / 2, 120); gfx->print(timeText);
 
-    // Caja más angosta y más corta que antes (20..390 x 220..460) para que las
-    // esquinas redondeadas de abajo no le coman los bordes.
-    gfx->fillRoundRect(40, 220, LCD_WIDTH - 80, 225, 20, PAL_TEXTO);
+    // Cajas entre x 40..370 y hasta y=445, lejos de las esquinas redondeadas de abajo.
+    const int SNOOZE_Y = 220, SNOOZE_H = 95;
+    const int OFF_Y = allowSnooze ? 330 : 220;
+    const int OFF_H = 445 - OFF_Y;
+    if (allowSnooze) {
+        gfx->fillRoundRect(40, SNOOZE_Y, LCD_WIDTH - 80, SNOOZE_H, 20, PAL_TEXTO_CLARO);
+        gfx->setTextColor(PAL_TEXTO);
+        gfx->setTextSize(3);
+        gfx->setCursor((LCD_WIDTH - 8 * 18) / 2, SNOOZE_Y + 22); gfx->print("POSPONER");
+        gfx->setTextSize(2);
+        gfx->setCursor((LCD_WIDTH - 5 * 12) / 2, SNOOZE_Y + 60); gfx->print("5 min");
+    }
+    gfx->fillRoundRect(40, OFF_Y, LCD_WIDTH - 80, OFF_H, 20, PAL_TEXTO);
     gfx->setTextColor(PAL_ALERTA);
     gfx->setTextSize(4);
-    gfx->setCursor((LCD_WIDTH - 10 * 24) / 2, 315); gfx->print("DESACTIVAR");
+    gfx->setCursor((LCD_WIDTH - 10 * 24) / 2, OFF_Y + (OFF_H - 32) / 2); gfx->print("DESACTIVAR");
 
+    bool snoozed = false;
     while (true) {
         AudioManager::playTone(AudioManager::masterVolume);
         int16_t tx, ty;
-        if (TouchDriver::getTouch(tx, ty) && ty >= 200) {
-            TouchDriver::waitForRelease();
-            break;
+        if (TouchDriver::getTouch(tx, ty)) {
+            if (allowSnooze && ty >= SNOOZE_Y && ty <= SNOOZE_Y + SNOOZE_H) { snoozed = true; break; }
+            if (ty >= OFF_Y) break;
         }
     }
-
+    TouchDriver::waitForRelease();
     AudioManager::stopTone();
-    // La alarma sigue activa: vuelve a sonar mañana a la misma hora.
-    // Vuelve a la pantalla que había (antes iba siempre al dashboard, aunque no
-    // hubiera un perfil abierto).
+
     currentScreen = previousScreen;
-    PowerManager::notifyActivity();   // la alarma bloquea el loop: reiniciar la inactividad
+    PowerManager::notifyActivity();   // esto bloquea el loop: reiniciar la inactividad
     refreshCurrentScreen();
+    return snoozed;
+}
+
+void DisplayUI::triggerAlarmRinging(int alarmIdx) {
+    char t[8];
+    snprintf(t, sizeof(t), "%02d:%02d", AlarmManager::alarmList[alarmIdx].hour, AlarmManager::alarmList[alarmIdx].minute);
+    if (ringScreen("ALARMA!", t, true)) AlarmManager::snooze(alarmIdx, 5);
+    // Si se desactiva, la alarma sigue activa: vuelve a sonar mañana a la misma hora.
 }
 
 void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
+    if (currentScreen == SCREEN_SETTINGS) {
+        auto inBtn = [&](int x, int y, int w, int h) { return tx >= x && tx <= x + w && ty >= y && ty <= y + h; };
+        if (inBtn(SET_MINUS_X, SET_BRIGHT_Y, SET_BTN_W, SET_BTN_H)) Settings::setBrightness(Settings::brightness() - 1);
+        else if (inBtn(SET_PLUS_X, SET_BRIGHT_Y, SET_BTN_W, SET_BTN_H)) Settings::setBrightness(Settings::brightness() + 1);
+        else if (inBtn(SET_MINUS_X, SET_VOLUME_Y, SET_BTN_W, SET_BTN_H)) Settings::setAlarmVolume(Settings::alarmVolume() - 1);
+        else if (inBtn(SET_PLUS_X, SET_VOLUME_Y, SET_BTN_W, SET_BTN_H)) Settings::setAlarmVolume(Settings::alarmVolume() + 1);
+        else if (inBtn(60, SET_WIFI_Y, 290, 55)) { TouchDriver::waitForRelease(); WiFiPortal::startPortal(); return; }
+        else if (inBtn(100, SET_BACK_Y, 210, 55)) {
+            TouchDriver::waitForRelease();
+            currentScreen = SCREEN_PROFILES;
+            drawProfileMenu();
+            return;
+        } else return;
+        drawSettingValues(gfx);                  // solo cambian los números
+        TouchDriver::waitForRelease();
+        return;
+    }
+
     if (currentScreen == SCREEN_WIFI_CONFIG) {
         if (tx >= 50 && tx <= 350 && ty >= 340 && ty <= 410) {
             TouchDriver::waitForRelease();
@@ -653,7 +785,8 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
         }
         if (tx >= 50 && tx <= 360 && ty >= 400 && ty <= 460) {
             TouchDriver::waitForRelease();
-            WiFiPortal::startPortal();
+            currentScreen = SCREEN_SETTINGS;
+            drawSettingsScreen();
             return;
         }
     } else if (currentScreen == SCREEN_DASHBOARD) {
@@ -687,22 +820,34 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
             }
         }
 
-        if (currentTab == TAB_CHRONO && ty >= 290 && ty <= 340) {
-            if (tx >= 45 && tx <= 175) AlarmManager::toggleChrono();
-            else if (tx >= 235 && tx <= 365) AlarmManager::resetChrono();
-            TouchDriver::waitForRelease();
-            drawDashboard();
-            return;
+        if (currentTab == TAB_CHRONO) {
+            bool handled = false;
+            if (ty >= 118 && ty <= 154) {                         // selector de modo
+                chronoShowTimer = (tx >= 205);
+                handled = true;
+            } else if (chronoShowTimer && ty >= 225 && ty <= 270) {   // +1 / +5 / +10 min
+                static const int MINUTES[3] = { 1, 5, 10 };
+                for (int i = 0; i < 3; i++) {
+                    int x = 30 + i * 120;
+                    if (tx >= x && tx <= x + 110) { AlarmManager::timerAdd(MINUTES[i]); handled = true; }
+                }
+            } else if (ty >= 290 && ty <= 340) {                  // INICIAR/PAUSA y RESET
+                if (tx >= 45 && tx <= 175) {
+                    if (chronoShowTimer) AlarmManager::toggleTimer(); else AlarmManager::toggleChrono();
+                    handled = true;
+                } else if (tx >= 235 && tx <= 365) {
+                    if (chronoShowTimer) AlarmManager::resetTimer(); else AlarmManager::resetChrono();
+                    handled = true;
+                }
+            }
+            if (handled) {
+                TouchDriver::waitForRelease();
+                drawDashboard();
+                return;
+            }
         }
 
         if (currentTab == TAB_ADD_ALARM) {
-            if (ty >= 155 && ty <= 195) {
-                if (tx >= 230 && tx <= 290 && AudioManager::masterVolume > 0) AudioManager::masterVolume--;
-                if (tx >= 300 && tx <= 360 && AudioManager::masterVolume < 10) AudioManager::masterVolume++;
-                drawDashboard();
-                TouchDriver::waitForRelease();
-                return;
-            }
             // GUARDAR va primero: ocupa la misma franja vertical que las filas de +/−,
             // y si esas se revisaban antes se quedaban con el toque.
             if (tx >= 235 && tx <= 385 && ty >= 220 && ty <= 330) {

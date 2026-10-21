@@ -22,6 +22,8 @@ public:
     static void lowPowerTick();            // pantalla apagada un rato: apaga el WiFi y después duerme
     static void turnScreenOff();
     static void turnScreenOn(bool redraw = true);   // también sale del modo dormir
+    static void glanceOn();                // solo el panel, para la hora grande (levantar la muñeca)
+    static bool isGlance();
     static bool isScreenOff();
     static XPowersPMU& getPMU();
 

@@ -72,8 +72,63 @@ void AlarmManager::toggleAlarm(int index) {
     save();
 }
 
+// Posponer: la alarma vuelve a sonar en snoozeAt (hora del sistema). No se guarda en la
+// memoria: si el reloj se reinicia, se pierde el "posponer" (la alarma diaria no).
+static time_t snoozeAt = 0;
+static int snoozeIdx = -1;
+
+void AlarmManager::snooze(int index, int minutes) {
+    snoozeIdx = index;
+    snoozeAt = time(nullptr) + minutes * 60;
+}
+
+// --- TEMPORIZADOR ---
+// Corriendo: termina en timerEndMs (millis). En pausa: quedan timerLeftMs.
+static bool timerRunning = false;
+static unsigned long timerEndMs = 0;
+static unsigned long timerLeftMs = 0;
+
+void AlarmManager::timerAdd(int minutes) {
+    if (timerRunning) timerEndMs += minutes * 60000UL;
+    else timerLeftMs += minutes * 60000UL;
+}
+
+void AlarmManager::toggleTimer() {
+    if (timerRunning) {
+        timerLeftMs = getTimerRemaining();
+        timerRunning = false;
+    } else if (timerLeftMs > 0) {
+        timerEndMs = millis() + timerLeftMs;
+        timerRunning = true;
+    }
+}
+
+void AlarmManager::resetTimer() {
+    timerRunning = false;
+    timerLeftMs = 0;
+}
+
+bool AlarmManager::isTimerRunning() { return timerRunning; }
+
+unsigned long AlarmManager::getTimerRemaining() {
+    if (!timerRunning) return timerLeftMs;
+    long left = (long)(timerEndMs - millis());
+    return left > 0 ? left : 0;
+}
+
 // Las alarmas se repiten todos los días a la misma hora mientras estén activas.
 void AlarmManager::checkAlarms() {
+    if (timerRunning && getTimerRemaining() == 0) {
+        timerRunning = false;
+        timerLeftMs = 0;
+        DisplayUI::ringScreen("TIEMPO!", "00:00", false);
+    }
+
+    if (snoozeAt != 0 && time(nullptr) >= snoozeAt) {
+        snoozeAt = 0;
+        if (snoozeIdx >= 0 && snoozeIdx < alarmCount) DisplayUI::triggerAlarmRinging(snoozeIdx);
+    }
+
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo, 0)) return;
 

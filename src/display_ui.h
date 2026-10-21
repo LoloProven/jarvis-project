@@ -18,7 +18,11 @@ public:
     static void musicTick();                          // vuelve el color del botón que titiló
     static void drawWifiPortalScreen();
     static void showSleepMessage();      // aviso antes de entrar en modo dormir
+    static void drawSettingsScreen();    // AJUSTES: brillo, volumen y WiFi
+    static void drawBigClock();          // hora grande en blanco sobre negro (levantar la muñeca)
     static void triggerAlarmRinging(int alarmIdx);
+    // Pantalla que suena (alarma/temporizador); devuelve true si se eligió POSPONER.
+    static bool ringScreen(const char* title, const char* timeText, bool allowSnooze);
     static void handleTouch(int16_t x, int16_t y);
 
     static Arduino_GFX* getGFX();

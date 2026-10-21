@@ -11,8 +11,13 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
 
 ## Estado (todo probado en el reloj)
 - Pantalla con paleta pastel (include/palette.h), encabezado con nombre, "Conectado/Sin conexion" y hora.
-- Pestañas: AGENDA (alarmas diarias, guardadas en NVS), CRONO (cronómetro + pasos, km y velocidad),
-  +ALARMA, MUSICA (control de Spotify por Bluetooth + nombre de la canción). Barra inferior: batería y Salir.
+- Pestañas: AGENDA (alarmas diarias, guardadas en NVS), CRONO (selector CRONOMETRO | TEMPORIZADOR,
+  + pasos, km y velocidad), +ALARMA, MUSICA (control de Spotify por Bluetooth + nombre de la canción).
+  Barra inferior: batería y Salir.
+- Menú de perfiles: botón AJUSTES (brillo, volumen de la alarma, configurar WiFi; guardados en NVS).
+- Alarma y temporizador suenan con DisplayUI::ringScreen(); la alarma permite POSPONER 5 min.
+- Levantar la muñeca con la pantalla apagada (no en modo dormir): hora grande en blanco 5 s
+  ("vistazo": solo el panel, sin WiFi ni CPU a 240 MHz). Detección en la tarea de pasos.
 - Hora argentina por NTP, guardada en el RTC. WiFi múltiple: casa, portal y hotspot del iPhone.
 - Pasos por software con el acelerómetro (el podómetro del chip no cuenta).
 - Energía: PWR corto = pantalla; PWR 1,5 s o 30 min apagada = modo dormir (sueño liviano, apaga
@@ -30,7 +35,9 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
   $env:TEMP="D:\temp"; $env:TMP="D:\temp"; $env:PIP_CACHE_DIR="D:\pip-cache"
 - Compilar: platformio.exe run    Subir: platformio.exe run -t upload --upload-port COM3
 - El reloj tiene que estar despierto para subir (en modo dormir desaparece el puerto USB). Cada subida
-  lo reinicia y corta el Bluetooth.
+  lo reinicia y corta el Bluetooth. Si falla con "No serial data received" o no aparece el puerto:
+  desenchufar, mantener BOOT, enchufar, soltar BOOT y volver a subir. El puerto puede no ser COM3:
+  buscar el que tenga VID 303A en "platformio.exe device list".
 - No correr dos compilaciones a la vez (comparten .pio y se pisan). Cambiar build flags recompila todo (~9 min).
 - Flags útiles por variable de entorno (no tocar platformio.ini):
   PLATFORMIO_BUILD_FLAGS="-DTEST_ONLY_HOTSPOT" (solo hotspot + diagnóstico WiFi por USB),

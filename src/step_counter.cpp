@@ -97,6 +97,38 @@ static void onSample(float mag, unsigned long now) {
     }
 }
 
+// --- LEVANTAR LA MUÑECA ---
+// Pantalla hacia arriba = z cerca de -1 g (así mide quieto sobre la mesa, boca arriba).
+// Se dispara cuando pasa de otra posición (brazo colgando o caminando) a pantalla hacia
+// arriba y se queda así WRIST_HOLD_MS. Quieto sobre la mesa no se dispara: no hay cambio.
+static const unsigned long WRIST_HOLD_MS   = 250;
+static const unsigned long WRIST_WINDOW_MS = 1500;  // el cambio tiene que ser reciente
+static unsigned long lastNotFaceUp = 0, faceUpSince = 0;
+static bool wristFired = false;                     // ya avisó en esta "pantalla hacia arriba"
+static volatile bool wristRaised = false;
+
+static void wristCheck(float ax, float ay, float az, unsigned long now) {
+    bool faceUp = az < -0.75f && fabsf(ax) < 0.5f && fabsf(ay) < 0.5f;
+    if (!faceUp) {
+        lastNotFaceUp = now;
+        faceUpSince = 0;
+        wristFired = false;
+        return;
+    }
+    if (faceUpSince == 0) faceUpSince = now;
+    if (!wristFired && now - faceUpSince >= WRIST_HOLD_MS &&
+        faceUpSince - lastNotFaceUp < WRIST_WINDOW_MS) {
+        wristFired = true;
+        wristRaised = true;
+    }
+}
+
+bool StepCounter::takeWristRaise() {
+    if (!wristRaised) return false;
+    wristRaised = false;
+    return true;
+}
+
 static void stepTask(void*) {
     TickType_t wake = xTaskGetTickCount();
     unsigned long lastDayCheck = 0, lastSave = 0;
@@ -108,7 +140,10 @@ static void stepTask(void*) {
             I2CLock lock;                        // el I2C se comparte con el loop (touch, PMU)
             ok = qmi.getAccelerometer(ax, ay, az);
         }
-        if (ok) onSample(sqrtf(ax * ax + ay * ay + az * az), now);
+        if (ok) {
+            onSample(sqrtf(ax * ax + ay * ay + az * az), now);
+            wristCheck(ax, ay, az, now);
+        }
 
         // Medianoche (o la hora pasó a ser la real por NTP/RTC y cambió el día): de nuevo a 0.
         if (now - lastDayCheck >= 2000) {
