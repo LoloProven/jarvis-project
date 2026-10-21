@@ -7,6 +7,7 @@
 #include "wifi_portal.h"
 #include "time_sync.h"
 #include "net_status.h"
+#include "step_counter.h"
 
 static unsigned long lastClockUpdate = 0;
 static NetState lastNetState = NET_NO_WIFI;
@@ -26,6 +27,7 @@ void setup() {
     // Zona horaria y hora de respaldo; tiene que ir antes de conectar el WiFi
     // para no perderse el evento de conexión.
     TimeSync::init();
+    StepCounter::init();           // después de TimeSync: necesita la fecha para saber qué día es
     NetStatus::init();
 
     WiFiPortal::initSaved();
@@ -33,8 +35,19 @@ void setup() {
 }
 
 void loop() {
+    // Modo dormir: duerme de a 1 s y entre medio solo mira PWR y las alarmas.
+    if (PowerManager::isSleeping()) {
+        PowerManager::WakeReason why = PowerManager::sleepTick();
+        AlarmManager::checkAlarms();          // si suena, prende la pantalla y sale del modo dormir
+        if (why == PowerManager::WAKE_TOUCH) ignoreUntilRelease = true;   // ese toque solo despierta
+        return;
+    }
+
     // Esto corre siempre, con la pantalla encendida o apagada.
     PowerManager::checkButton();
+    PowerManager::updateBattery();        // lee el AXP2101 cada 30 s
+    PowerManager::lowPowerTick();         // pantalla apagada hace rato: apaga el WiFi
+    StepCounter::loop();                  // los pasos se cuentan en su propia tarea
     TimeSync::loop();
     AlarmManager::checkAlarms();          // si suena con la pantalla apagada, la enciende
 
@@ -73,9 +86,12 @@ void loop() {
         DisplayUI::refreshNetStatus(wifiChanged);
     }
 
+    // Una vez por segundo: hora, barra inferior (pasos, km, velocidad, batería) y
+    // cronómetro. Cada uno redibuja solo lo que cambió, así la pantalla no parpadea.
     if (DisplayUI::getCurrentScreen() == SCREEN_DASHBOARD && millis() - lastClockUpdate > 1000) {
         lastClockUpdate = millis();
         DisplayUI::drawHeaderClockOnly();
+        DisplayUI::refreshBottomBar();
         if (AlarmManager::isChronoRunning()) {
             DisplayUI::refreshChronoDigits();   // solo los dígitos, y solo en la pestaña CRONO
         }

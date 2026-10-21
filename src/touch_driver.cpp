@@ -1,5 +1,6 @@
 #include "touch_driver.h"
 #include "config.h"
+#include "i2c_lock.h"
 #include <Wire.h>
 
 // Igual que el ejemplo de Waveshare (Arduino_FT3x68 con TP_INT): el FT3168 baja
@@ -27,6 +28,7 @@ void TouchDriver::init() {
 bool TouchDriver::getTouch(int16_t &tx, int16_t &ty) {
     if (!irqSeen || millis() - lastIrqMs > TOUCH_ACTIVE_MS) return false;
 
+    I2CLock lock;                                // el I2C se comparte con la tarea de pasos
     Wire.beginTransmission(TOUCH_I2C_ADDR);
     Wire.write(0x02);
     if (Wire.endTransmission() != 0) return false;

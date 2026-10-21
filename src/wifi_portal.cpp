@@ -14,6 +14,8 @@ static Preferences prefs;
 static WiFiMulti wifiMulti;
 static SemaphoreHandle_t wifiLock = NULL;      // wifiMulti se usa desde el loop y desde la tarea
 static volatile bool portalActive = false;     // con el portal abierto no se buscan redes
+static volatile bool suspended = false;        // WiFi apagado para ahorrar batería
+static volatile bool kick = false;             // pide reconectar ya, sin esperar los 15 s
 static bool handlersRegistered = false;
 
 static const uint32_t CONNECT_TIMEOUT_MS  = 8000;    // por intento (incluye buscar redes)
@@ -122,7 +124,7 @@ static void diagHotspot() {
 // Corre en el núcleo 0 para no trabar la pantalla mientras busca.
 static void wifiKeeperTask(void*) {
     for (;;) {
-        if (!portalActive && WiFi.status() != WL_CONNECTED) {
+        if (!portalActive && !suspended && WiFi.status() != WL_CONNECTED) {
 #if defined(TEST_ONLY_HOTSPOT) && defined(HAS_HOTSPOT)
             diagHotspot();
 #endif
@@ -133,7 +135,11 @@ static void wifiKeeperTask(void*) {
             Serial.printf("[diag] resultado de la conexion: %d (3=conectado, 1=no se ve la red, 4=fallo, 6=desconectado)\n", res);
 #endif
         }
-        vTaskDelay(pdMS_TO_TICKS(RECONNECT_EVERY_MS));
+        // Espera en tramos cortos para reconectar enseguida si resume() lo pide.
+        for (uint32_t t = 0; t < RECONNECT_EVERY_MS && !kick; t += 500) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        kick = false;
     }
 }
 
@@ -229,3 +235,23 @@ void WiFiPortal::handlePortal() {
     dnsServer.processNextRequest();
     server.handleClient();
 }
+
+// Apaga la radio WiFi (la pantalla lleva un rato apagada). No toca el portal.
+void WiFiPortal::suspend() {
+    if (suspended || portalActive) return;
+    xSemaphoreTake(wifiLock, portMAX_DELAY);     // espera si la tarea está conectando
+    suspended = true;
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    xSemaphoreGive(wifiLock);
+}
+
+// Vuelve a prender el WiFi y reconecta enseguida a la red conocida disponible.
+void WiFiPortal::resume() {
+    if (!suspended) return;
+    WiFi.mode(WIFI_STA);
+    suspended = false;
+    kick = true;
+}
+
+bool WiFiPortal::isSuspended() { return suspended; }

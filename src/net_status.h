@@ -14,6 +14,7 @@ class NetStatus {
 public:
     static void init();
     static NetState get();
+    static void setPaused(bool paused);   // con la pantalla apagada no se revisa internet
 };
 
 #endif

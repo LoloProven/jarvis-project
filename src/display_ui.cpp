@@ -7,6 +7,7 @@
 #include "palette.h"
 #include "time_sync.h"
 #include "net_status.h"
+#include "step_counter.h"
 #include <WiFi.h>
 
 // --- CORREGIDO: inicialización validada contra el ejemplo oficial de Waveshare ---
@@ -61,6 +62,8 @@ static Profile profiles[4] = {
     {"Lucia",  PAL_LILA,    225, 210, 150, 150}
 };
 
+static void drawBattery(Arduino_GFX* g, int x, int y);   // definida junto a la barra inferior
+
 // Pestaña del dashboard: activa en acento con texto oscuro, inactiva en tarjeta con texto claro.
 static void drawTab(Arduino_GFX* g, int x, int w, int textX, const char* label, bool active) {
     g->fillRect(x, 65, w, 38, active ? PAL_ACENTO : PAL_TARJETA);
@@ -114,10 +117,23 @@ void DisplayUI::drawProfileMenu() {
     gfx->setTextSize(2);
     gfx->setCursor(95, 420);
     gfx->print("CONFIGURAR WIFI");
+
+    drawBattery(gfx, 182, 6);   // arriba al centro, lejos de las esquinas redondeadas
 }
+
+// La hora se llama cada segundo pero solo cambia una vez por minuto: se redibuja
+// solo si cambió el texto o si pasó a estar sincronizada (si no, parpadea).
+static String lastClockText;
+static int lastClockSynced = -1;           // -1 = forzar el próximo dibujo
 
 void DisplayUI::drawHeaderClockOnly() {
     if (activeProfile < 0 || PowerManager::isScreenOff()) return;
+    String text = getFormattedTime();
+    int syncedNow = TimeSync::isSynced() ? 1 : 0;
+    if (text == lastClockText && syncedNow == lastClockSynced) return;
+    lastClockText = text;
+    lastClockSynced = syncedNow;
+
     gfx->fillRect(CLOCK_X - 3, 0, LCD_WIDTH - (CLOCK_X - 3), HEADER_H, profiles[activeProfile].color);
     if (TimeSync::isSynced()) {
         gfx->setTextColor(PAL_TEXTO);
@@ -129,7 +145,7 @@ void DisplayUI::drawHeaderClockOnly() {
     }
     gfx->setTextSize(3);
     gfx->setCursor(CLOCK_X, CLOCK_Y);
-    gfx->print(getFormattedTime());
+    gfx->print(text);
 }
 
 // --- CRONÓMETRO: zona de los dígitos dentro de la caja del dashboard ---
@@ -149,10 +165,17 @@ void DisplayUI::drawChronoDigits() {
     if (hours > 0) snprintf(buf, sizeof(buf), "%lu:%02d:%02d", hours, minutes, seconds);
     else           snprintf(buf, sizeof(buf), "%02d:%02d", minutes, seconds);
 
-    int textW = strlen(buf) * CHRONO_CHAR_W;
-    gfx->fillRect(20, CHRONO_Y, LCD_WIDTH - 40, CHRONO_H, PAL_FONDO);   // sin tocar el borde de la caja
+    // Los dígitos se escriben con fondo (sin borrar antes) para que no parpadee; solo se
+    // borra la zona cuando cambia el largo (al pasar de MM:SS a H:MM:SS o al resetear).
+    static size_t lastLen = 0;
+    size_t len = strlen(buf);
+    if (len != lastLen) {
+        gfx->fillRect(20, CHRONO_Y, LCD_WIDTH - 40, CHRONO_H, PAL_FONDO);   // sin tocar el borde de la caja
+        lastLen = len;
+    }
+    int textW = len * CHRONO_CHAR_W;
     gfx->setTextSize(5);
-    gfx->setTextColor(PAL_MENTA);
+    gfx->setTextColor(PAL_MENTA, PAL_FONDO);
     gfx->setCursor((LCD_WIDTH - textW) / 2, CHRONO_Y);
     gfx->print(buf);
 }
@@ -209,6 +232,7 @@ void DisplayUI::drawDashboard() {
     gfx->printf("%s", profiles[activeProfile].name);
 
     drawNetBox();
+    lastClockSynced = -1;          // el encabezado se acaba de pintar: forzar la hora
     drawHeaderClockOnly();
 
     int tabW = online ? 88 : 115;
@@ -310,11 +334,111 @@ void DisplayUI::drawDashboard() {
         gfx->print("MANTENER");
     }
 
-    gfx->fillRoundRect(100, 430, 210, 45, 12, PAL_ALERTA);
+    drawBottomBar();
+}
+
+// --- BARRA INFERIOR DEL DASHBOARD (debajo de la caja, que termina en y=410) ---
+// Izquierda: pasos y distancia. Centro: batería y velocidad. Derecha: botón Salir.
+// Abajo las esquinas redondeadas tapan ~35-45 px, por eso nada pasa de x 55..350.
+static const int BAR_Y        = 428;
+static const int BAR_H        = 48;
+static const int STEPS_X      = 55;
+static const int BATT_X       = 192;      // también la velocidad, en el renglón de abajo
+static const int SALIR_X      = 282;
+static const int SALIR_W      = 68;
+
+// Color de la batería: menta >50 %, amarillo 20-50 %, coral <20 %, celeste cargando.
+static uint16_t batteryColor() {
+    int pct = PowerManager::batteryPercent();
+    return PowerManager::isCharging() ? PAL_CELESTE
+         : pct < 0   ? PAL_LILA
+         : pct > 50  ? PAL_OK
+         : pct >= 20 ? PAL_AMARILLO
+         : PAL_ALERTA;
+}
+
+// "85%", "85%+" cargando, "--" sin batería.
+static void batteryText(char* buf, size_t len) {
+    int pct = PowerManager::batteryPercent();
+    if (pct < 0) snprintf(buf, len, "--");
+    else snprintf(buf, len, "%d%%%s", pct, PowerManager::isCharging() ? "+" : "");
+}
+
+static void drawBattery(Arduino_GFX* g, int x, int y) {
+    char buf[8];
+    batteryText(buf, sizeof(buf));
+    g->setTextColor(batteryColor());
+    g->setTextSize(2);
+    g->setCursor(x, y);
+    g->print(buf);
+}
+
+// Para que no parpadee, cada dato de la barra se escribe con su propio fondo
+// (sin borrar antes) y rellenado con espacios hasta un ancho fijo, y solo si cambió.
+enum BarField { BF_STEPS, BF_KM, BF_BATT, BF_SPEED, BF_COUNT };
+static char barText[BF_COUNT][14];
+static uint16_t barColor[BF_COUNT];
+
+static void drawBarField(Arduino_GFX* g, BarField f, int x, int y, int widthChars,
+                         const char* text, uint16_t color, bool force) {
+    if (!force && barColor[f] == color && strcmp(barText[f], text) == 0) return;
+    strncpy(barText[f], text, sizeof(barText[f]) - 1);
+    barText[f][sizeof(barText[f]) - 1] = 0;
+    barColor[f] = color;
+    g->setTextColor(color, PAL_FONDO);
+    g->setTextSize(2);
+    g->setCursor(x, y);
+    g->printf("%-*s", widthChars, text);
+}
+
+static void updateBarFields(Arduino_GFX* g, bool force) {
+    char buf[16];
+    if (StepCounter::available()) {
+        snprintf(buf, sizeof(buf), "%lu pasos", (unsigned long)StepCounter::steps());
+        drawBarField(g, BF_STEPS, STEPS_X, BAR_Y + 2, 11, buf, PAL_MENTA, force);
+        snprintf(buf, sizeof(buf), "%.2f km", StepCounter::distanceKm());
+        drawBarField(g, BF_KM, STEPS_X, BAR_Y + 26, 11, buf, PAL_TEXTO_CLARO, force);
+
+        // Velocidad estimada con el ritmo de pasos (sin GPS). Hasta 7 caracteres.
+        float v = StepCounter::speedKmh();
+        if (v >= 10) snprintf(buf, sizeof(buf), "%.0fkm/h", v);
+        else snprintf(buf, sizeof(buf), "%.1fkm/h", v);
+        drawBarField(g, BF_SPEED, BATT_X, BAR_Y + 26, 7, buf, v > 0 ? PAL_CELESTE : PAL_LILA, force);
+    } else {
+        drawBarField(g, BF_STEPS, STEPS_X, BAR_Y + 16, 11, "sin sensor", PAL_LILA, force);
+    }
+    batteryText(buf, sizeof(buf));
+    drawBarField(g, BF_BATT, BATT_X, BAR_Y + 2, 7, buf, batteryColor(), force);
+}
+
+// Dibujo completo (al armar el dashboard, que ya pintó el fondo de negro).
+void DisplayUI::drawBottomBar() {
+    updateBarFields(gfx, true);
+
+    gfx->fillRoundRect(SALIR_X, BAR_Y, SALIR_W, 45, 12, PAL_ALERTA);
     gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(2);
-    gfx->setCursor(120, 442);
-    gfx->print("Cerrar Sesion");
+    gfx->setCursor(SALIR_X + (SALIR_W - 5 * 12) / 2, BAR_Y + 15);
+    gfx->print("Salir");
+}
+
+// Actualización periódica: solo los datos que cambiaron, sin tocar el botón.
+void DisplayUI::refreshBottomBar() {
+    if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
+    updateBarFields(gfx, false);
+}
+
+void DisplayUI::showSleepMessage() {
+    if (PowerManager::isScreenOff()) return;
+    gfx->fillScreen(PAL_FONDO);
+    gfx->setTextColor(PAL_LILA);
+    gfx->setTextSize(3);
+    gfx->setCursor((LCD_WIDTH - 11 * 18) / 2, 200);
+    gfx->print("Modo dormir");
+    gfx->setTextColor(PAL_TEXTO_CLARO);
+    gfx->setTextSize(2);
+    gfx->setCursor((LCD_WIDTH - 19 * 12) / 2, 250);
+    gfx->print("Toca para despertar");
 }
 
 void DisplayUI::drawWifiPortalScreen() {
@@ -322,7 +446,7 @@ void DisplayUI::drawWifiPortalScreen() {
     gfx->fillScreen(PAL_FONDO);
     gfx->setTextColor(PAL_CELESTE);
     gfx->setTextSize(2);
-    gfx->setCursor(35, 40);
+    gfx->setCursor((LCD_WIDTH - 15 * 12) / 2, 40);   // centrado: en x=35 lo tapaba la esquina
     gfx->print("CONFIGURAR WIFI");
 
     gfx->setTextColor(PAL_TEXTO_CLARO);
@@ -352,16 +476,18 @@ void DisplayUI::triggerAlarmRinging(int alarmIdx) {
     gfx->fillScreen(PAL_ALERTA);
     gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(4);
-    gfx->setCursor(80, 50); gfx->print("ALARMA!");
+    gfx->setCursor((LCD_WIDTH - 7 * 24) / 2, 50); gfx->print("ALARMA!");
 
     gfx->setTextSize(6);
-    gfx->setCursor(110, 120);
+    gfx->setCursor((LCD_WIDTH - 5 * 36) / 2, 120);
     gfx->printf("%02d:%02d", AlarmManager::alarmList[alarmIdx].hour, AlarmManager::alarmList[alarmIdx].minute);
 
-    gfx->fillRoundRect(20, 220, 370, 240, 20, PAL_TEXTO);
+    // Caja más angosta y más corta que antes (20..390 x 220..460) para que las
+    // esquinas redondeadas de abajo no le coman los bordes.
+    gfx->fillRoundRect(40, 220, LCD_WIDTH - 80, 225, 20, PAL_TEXTO);
     gfx->setTextColor(PAL_ALERTA);
     gfx->setTextSize(4);
-    gfx->setCursor(65, 310); gfx->print("DESACTIVAR");
+    gfx->setCursor((LCD_WIDTH - 10 * 24) / 2, 315); gfx->print("DESACTIVAR");
 
     while (true) {
         AudioManager::playTone(AudioManager::masterVolume);
@@ -373,7 +499,7 @@ void DisplayUI::triggerAlarmRinging(int alarmIdx) {
     }
 
     AudioManager::stopTone();
-    AlarmManager::alarmList[alarmIdx].active = false;
+    // La alarma sigue activa: vuelve a sonar mañana a la misma hora.
     // Vuelve a la pantalla que había (antes iba siempre al dashboard, aunque no
     // hubiera un perfil abierto).
     currentScreen = previousScreen;
@@ -427,6 +553,13 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
                 if (tx >= 310 && tx <= 355 && ty >= yPos && ty <= yPos + 40) {
                     TouchDriver::waitForRelease();
                     AlarmManager::deleteAlarm(i);
+                    drawDashboard();
+                    return;
+                }
+                // Tocar la hora (o el texto ACTIVA/INACTIVA) la activa o desactiva.
+                if (tx >= 30 && tx <= 300 && ty >= yPos && ty <= yPos + 40) {
+                    TouchDriver::waitForRelease();
+                    AlarmManager::toggleAlarm(i);
                     drawDashboard();
                     return;
                 }
@@ -488,7 +621,7 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
             return;
         }
 
-        if (tx >= 100 && tx <= 310 && ty >= 430 && ty <= 475) {
+        if (tx >= SALIR_X && tx <= SALIR_X + SALIR_W && ty >= BAR_Y && ty <= BAR_Y + 45) {
             TouchDriver::waitForRelease();
             activeProfile = -1;
             currentScreen = SCREEN_PROFILES;
