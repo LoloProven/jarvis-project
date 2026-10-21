@@ -9,12 +9,9 @@ unsigned long PowerManager::lastActivity = 0;
 void PowerManager::init() {
     Wire.begin(PMU_SDA, PMU_SCL);
     if (PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, PMU_SDA, PMU_SCL)) {
-        PMU.setDC1Voltage(3300); PMU.enableDC1();
-        PMU.setALDO1Voltage(3300); PMU.enableALDO1();
-        PMU.setALDO2Voltage(3300); PMU.enableALDO2();
-        PMU.setALDO3Voltage(3300); PMU.enableALDO3();
-        PMU.setBLDO1Voltage(3300); PMU.enableBLDO1();
-        PMU.setBLDO2Voltage(3300); PMU.enableBLDO2();
+        // Las tensiones de las salidas (DC1, ALDO1-4, BLDO1-2) se dejan como vienen de
+        // fábrica, igual que los ejemplos de Waveshare, que no las tocan. Antes se forzaban
+        // todas a 3,3 V, pero no todas son de 3,3 V (ALDO4, por ejemplo, viene en 1,8 V).
         PMU.enableBattVoltageMeasure();
         PMU.enableBattDetection();          // necesario para el porcentaje (como el ejemplo 05)
 
