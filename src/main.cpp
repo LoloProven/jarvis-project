@@ -17,7 +17,8 @@ static bool ignoreUntilRelease = false;
 void setup() {
     Serial.begin(115200);
 
-    PowerManager::init();
+    PowerManager::init();          // inicia Wire (I2C compartido por PMU, touch y audio)
+    TouchDriver::init();
     DisplayUI::init();
     AlarmManager::init();
     AudioManager::init();
