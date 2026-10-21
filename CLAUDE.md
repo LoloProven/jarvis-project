@@ -6,3 +6,4 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
 - Pines: pin_config.h. Secretos: include/secrets.h (nunca subirlo ni mostrarlo).
 - Estado: pantalla, IMU y audio probados con los ejemplos; el proyecto propio todavía no compila.
 - Backend: n8n (carpeta n8n-servidor).
+- Respondé siempre en español rioplatense, claro y sin jerga innecesaria.

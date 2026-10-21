@@ -4,6 +4,9 @@
 #include "alarm_manager.h"
 #include "audio_manager.h"
 #include "wifi_portal.h"
+#include "palette.h"
+#include "time_sync.h"
+#include "net_status.h"
 #include <WiFi.h>
 
 // --- CORREGIDO: inicialización validada contra el ejemplo oficial de Waveshare ---
@@ -39,12 +42,33 @@ int DisplayUI::tempHour = 18;
 int DisplayUI::tempMinute = 0;
 unsigned long DisplayUI::lastClockUpdate = 0;
 
+// --- ENCABEZADO DEL DASHBOARD (franja de 50 px, todo centrado en y=32) ---
+static const int HEADER_H     = 50;
+static const int CLOCK_W      = 5 * 18;                                  // "HH:MM" con setTextSize(3)
+static const int CLOCK_X      = LCD_WIDTH - SAFE_MARGIN_X - CLOCK_W;     // 265
+static const int CLOCK_Y      = SAFE_MARGIN_TOP;                         // 20..44
+static const int NAME_X       = SAFE_MARGIN_X;
+static const int NAME_Y       = SAFE_MARGIN_TOP + 4;                     // 24..40
+static const int WIFI_BOX_X   = 119;                                     // después de un nombre de 5 letras (termina en 115)
+static const int WIFI_BOX_W   = CLOCK_X - 4 - WIFI_BOX_X;                // 142 px, termina antes del fondo de la hora
+static const int WIFI_BOX_Y   = SAFE_MARGIN_TOP - 1;
+static const int WIFI_BOX_H   = 26;
+
 static Profile profiles[4] = {
-    {"Lolo",   RGB565_RED,    35,  30, 150, 150},
-    {"Santi",  RGB565_BLUE,  225,  30, 150, 150},
-    {"Fede",   DARK_GREEN,    35, 210, 150, 150},
-    {"Lucia",  RGB565_PURPLE, 225, 210, 150, 150}
+    {"Lolo",   PAL_CELESTE,  35,  30, 150, 150},
+    {"Delfi",  PAL_ROSA,    225,  30, 150, 150},
+    {"Fede",   PAL_MENTA,    35, 210, 150, 150},
+    {"Lucia",  PAL_LILA,    225, 210, 150, 150}
 };
+
+// Pestaña del dashboard: activa en acento con texto oscuro, inactiva en tarjeta con texto claro.
+static void drawTab(Arduino_GFX* g, int x, int w, int textX, const char* label, bool active) {
+    g->fillRect(x, 65, w, 38, active ? PAL_ACENTO : PAL_TARJETA);
+    g->setTextColor(active ? PAL_TEXTO : PAL_TEXTO_CLARO);
+    g->setTextSize(2);
+    g->setCursor(textX, 76);
+    g->print(label);
+}
 
 void DisplayUI::init() {
     gfx->begin();
@@ -65,27 +89,28 @@ String DisplayUI::getFormattedTime() {
 void DisplayUI::refreshCurrentScreen() {
     if (currentScreen == SCREEN_PROFILES) drawProfileMenu();
     else if (currentScreen == SCREEN_DASHBOARD) drawDashboard();
+    else if (currentScreen == SCREEN_WIFI_CONFIG) drawWifiPortalScreen();
 }
 
 void DisplayUI::drawAvatar(int x, int y, uint16_t color, const char* name) {
     gfx->fillRoundRect(x, y, 150, 150, 15, color);
-    gfx->drawRoundRect(x, y, 150, 150, 15, RGB565_WHITE);
-    gfx->fillCircle(x + 75, y + 50, 25, RGB565_WHITE);
-    gfx->fillRoundRect(x + 40, y + 80, 70, 40, 10, RGB565_WHITE);
-    gfx->setTextColor(RGB565_WHITE);
+    gfx->drawRoundRect(x, y, 150, 150, 15, PAL_TEXTO_CLARO);
+    gfx->fillCircle(x + 75, y + 50, 25, PAL_TEXTO);
+    gfx->fillRoundRect(x + 40, y + 80, 70, 40, 10, PAL_TEXTO);
+    gfx->setTextColor(PAL_TEXTO_CLARO);  // el nombre va debajo del cuadrado, sobre negro
     gfx->setTextSize(2);
     gfx->setCursor(x + 20, y + 160);
     gfx->print(name);
 }
 
 void DisplayUI::drawProfileMenu() {
-    gfx->fillScreen(RGB565_BLACK);
+    if (PowerManager::isScreenOff()) return;   // se dibuja al encender
+    gfx->fillScreen(PAL_FONDO);
     for (int i = 0; i < 4; i++) {
         drawAvatar(profiles[i].x, profiles[i].y, profiles[i].color, profiles[i].name);
     }
-    gfx->fillRoundRect(50, 400, 310, 60, 12, RGB565_NAVY);
-    gfx->drawRoundRect(50, 400, 310, 60, 12, RGB565_WHITE);
-    gfx->setTextColor(RGB565_WHITE);
+    gfx->fillRoundRect(50, 400, 310, 60, 12, PAL_ACENTO);
+    gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(2);
     gfx->setCursor(95, 420);
     gfx->print("CONFIGURAR WIFI");
@@ -93,190 +118,239 @@ void DisplayUI::drawProfileMenu() {
 
 void DisplayUI::drawHeaderClockOnly() {
     if (activeProfile < 0 || PowerManager::isScreenOff()) return;
-    gfx->fillRect(250, 0, 160, 50, profiles[activeProfile].color);
-    gfx->setTextColor(RGB565_WHITE);
+    gfx->fillRect(CLOCK_X - 3, 0, LCD_WIDTH - (CLOCK_X - 3), HEADER_H, profiles[activeProfile].color);
+    if (TimeSync::isSynced()) {
+        gfx->setTextColor(PAL_TEXTO);
+    } else {
+        // Hora de respaldo (nunca llegó la de NTP): dígitos en coral sobre una
+        // pastilla oscura, para que se note que no es confiable.
+        gfx->fillRoundRect(CLOCK_X - 3, CLOCK_Y - 3, CLOCK_W + 5, 30, 6, PAL_TEXTO);
+        gfx->setTextColor(PAL_ALERTA);
+    }
     gfx->setTextSize(3);
-    gfx->setCursor(270, 12);
+    gfx->setCursor(CLOCK_X, CLOCK_Y);
     gfx->print(getFormattedTime());
+}
+
+// --- CRONÓMETRO: zona de los dígitos dentro de la caja del dashboard ---
+static const int CHRONO_Y      = 170;
+static const int CHRONO_H      = 40;                  // setTextSize(5): 8 px * 5
+static const int CHRONO_CHAR_W = 30;                  // 6 px * 5
+
+void DisplayUI::drawChronoDigits() {
+    unsigned long ms = AlarmManager::getChronoTime();
+    unsigned long totalSec = ms / 1000;
+    int seconds = totalSec % 60;
+    int minutes = (totalSec / 60) % 60;
+    unsigned long hours = totalSec / 3600;
+
+    // MM:SS durante la primera hora; después H:MM:SS en vez de volver a 00:00.
+    char buf[16];
+    if (hours > 0) snprintf(buf, sizeof(buf), "%lu:%02d:%02d", hours, minutes, seconds);
+    else           snprintf(buf, sizeof(buf), "%02d:%02d", minutes, seconds);
+
+    int textW = strlen(buf) * CHRONO_CHAR_W;
+    gfx->fillRect(20, CHRONO_Y, LCD_WIDTH - 40, CHRONO_H, PAL_FONDO);   // sin tocar el borde de la caja
+    gfx->setTextSize(5);
+    gfx->setTextColor(PAL_MENTA);
+    gfx->setCursor((LCD_WIDTH - textW) / 2, CHRONO_Y);
+    gfx->print(buf);
+}
+
+void DisplayUI::refreshChronoDigits() {
+    if (PowerManager::isScreenOff()) return;
+    if (currentScreen != SCREEN_DASHBOARD || currentTab != TAB_CHRONO) return;
+    drawChronoDigits();
+}
+
+// Texto tamaño 2 con letras 1 px más juntas de lo normal (11 px en vez de 12), así
+// "Sin conexion" (12 letras) entra en la cajita entre el nombre y la hora.
+static const int NET_CHAR_ADV = 11;
+
+static void printCondensed(Arduino_GFX* g, int x, int y, const char* text) {
+    for (int i = 0; text[i]; i++) {
+        g->setCursor(x + i * NET_CHAR_ADV, y);
+        g->print(text[i]);
+    }
+}
+
+// Cajita de conexión del encabezado: "Conectado" en menta si hay internet,
+// "Sin conexion" en coral en cualquier otro caso (sin WiFi o WiFi sin internet).
+void DisplayUI::drawNetBox() {
+    bool connected = (NetStatus::get() == NET_ONLINE);
+    const char* label = connected ? "Conectado" : "Sin conexion";
+
+    // Se borra con el color del perfil para no dejar restos del estado anterior.
+    gfx->fillRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, profiles[activeProfile].color);
+    gfx->fillRoundRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, 6, connected ? PAL_OK : PAL_ALERTA);
+    gfx->setTextColor(PAL_TEXTO);
+    gfx->setTextSize(2);
+    int textW = strlen(label) * NET_CHAR_ADV - 1;
+    printCondensed(gfx, WIFI_BOX_X + (WIFI_BOX_W - textW) / 2, WIFI_BOX_Y + (WIFI_BOX_H - 16) / 2, label);
+}
+
+void DisplayUI::refreshNetStatus(bool wifiChanged) {
+    if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
+    // Si aparece o desaparece el WiFi cambian las pestañas (VOZ), así que va todo;
+    // si solo cambia el estado de internet alcanza con la cajita.
+    if (wifiChanged) drawDashboard();
+    else drawNetBox();
 }
 
 void DisplayUI::drawDashboard() {
     if (PowerManager::isScreenOff()) return;
-    gfx->fillScreen(RGB565_BLACK);
+    gfx->fillScreen(PAL_FONDO);
     bool online = (WiFi.status() == WL_CONNECTED);
 
-    gfx->fillRect(0, 0, 410, 50, profiles[activeProfile].color);
-    gfx->setTextColor(RGB565_WHITE);
+    gfx->fillRect(0, 0, LCD_WIDTH, HEADER_H, profiles[activeProfile].color);
+    gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(2);
-    gfx->setCursor(15, 15);
+    gfx->setCursor(NAME_X, NAME_Y);
     gfx->printf("%s", profiles[activeProfile].name);
 
-    gfx->fillRoundRect(100, 10, 150, 30, 6, online ? RGB565_GREEN : RGB565_RED);
-    gfx->setTextColor(RGB565_WHITE);
-    gfx->setCursor(110, 18);
-    gfx->setTextSize(1);
-    if (online) {
-        String ssid = WiFi.SSID();
-        if (ssid.length() > 10) ssid = ssid.substring(0, 8) + "..";
-        gfx->printf("WiFi: %s", ssid.c_str());
-    } else {
-        gfx->print("WiFi: Desconectado");
-    }
-
+    drawNetBox();
     drawHeaderClockOnly();
 
     int tabW = online ? 88 : 115;
-    gfx->fillRect(15, 65, tabW, 38, (currentTab == TAB_AGENDA) ? RGB565_BLUE : RGB565_DARKGREY);
-    gfx->fillRect(20 + tabW, 65, tabW, 38, (currentTab == TAB_CHRONO) ? RGB565_BLUE : RGB565_DARKGREY);
-    gfx->fillRect(25 + (tabW * 2), 65, tabW, 38, (currentTab == TAB_ADD_ALARM) ? RGB565_BLUE : RGB565_DARKGREY);
-
-    gfx->setTextColor(RGB565_WHITE);
-    gfx->setTextSize(2);
-    gfx->setCursor(25, 76); gfx->print("AGENDA");
-    gfx->setCursor(30 + tabW, 76); gfx->print("CRONO");
-    gfx->setCursor(30 + (tabW * 2), 76); gfx->print("+ALARMA");
-
+    drawTab(gfx, 15,                tabW, 25,                "AGENDA",  currentTab == TAB_AGENDA);
+    drawTab(gfx, 20 + tabW,         tabW, 30 + tabW,         "CRONO",   currentTab == TAB_CHRONO);
+    drawTab(gfx, 25 + (tabW * 2),   tabW, 30 + (tabW * 2),   "+ALARMA", currentTab == TAB_ADD_ALARM);
     if (online) {
-        gfx->fillRect(30 + (tabW * 3), 65, tabW, 38, (currentTab == TAB_AUDIO) ? RGB565_BLUE : RGB565_DARKGREY);
-        gfx->setCursor(40 + (tabW * 3), 76); gfx->print("VOZ");
+        drawTab(gfx, 30 + (tabW * 3), tabW, 40 + (tabW * 3), "VOZ",     currentTab == TAB_AUDIO);
     }
 
-    gfx->drawRoundRect(15, 110, 380, 300, 12, RGB565_WHITE);
+    gfx->drawRoundRect(15, 110, 380, 300, 12, PAL_LILA);
 
     if (currentTab == TAB_AGENDA) {
-        gfx->setTextColor(RGB565_YELLOW);
+        gfx->setTextColor(PAL_AMARILLO);
         gfx->setTextSize(2);
         gfx->setCursor(30, 125);
         gfx->printf("Alarmas Programadas (%d/%d)", AlarmManager::alarmCount, MAX_ALARMS);
 
         if (AlarmManager::alarmCount == 0) {
-            gfx->setTextColor(RGB565_LIGHTGREY);
+            gfx->setTextColor(PAL_LILA);
             gfx->setCursor(40, 220);
             gfx->print("Sin alarmas. Ve a +ALARMA");
         } else {
             for (int i = 0; i < AlarmManager::alarmCount; i++) {
                 int yPos = 160 + (i * 50);
-                gfx->fillRoundRect(30, yPos, 110, 40, 8, AlarmManager::alarmList[i].active ? RGB565_NAVY : RGB565_DARKGREY);
-                gfx->setTextColor(RGB565_WHITE);
+                bool active = AlarmManager::alarmList[i].active;
+                gfx->fillRoundRect(30, yPos, 110, 40, 8, active ? PAL_ACENTO : PAL_TARJETA);
+                gfx->setTextColor(active ? PAL_TEXTO : PAL_TEXTO_CLARO);
                 gfx->setTextSize(3);
                 gfx->setCursor(40, yPos + 8);
                 gfx->printf("%02d:%02d", AlarmManager::alarmList[i].hour, AlarmManager::alarmList[i].minute);
 
-                gfx->setTextColor(AlarmManager::alarmList[i].active ? RGB565_GREEN : RGB565_RED);
+                gfx->setTextColor(active ? PAL_OK : PAL_ALERTA);
                 gfx->setTextSize(2);
                 gfx->setCursor(155, yPos + 12);
-                gfx->print(AlarmManager::alarmList[i].active ? "ACTIVA" : "INACTIVA");
+                gfx->print(active ? "ACTIVA" : "INACTIVA");
 
-                gfx->fillRoundRect(310, yPos, 45, 40, 8, RGB565_RED);
-                gfx->setTextColor(RGB565_WHITE);
+                gfx->fillRoundRect(310, yPos, 45, 40, 8, PAL_ALERTA);
+                gfx->setTextColor(PAL_TEXTO);
                 gfx->setTextSize(3);
                 gfx->setCursor(325, yPos + 8);
                 gfx->print("X");
             }
         }
     } else if (currentTab == TAB_CHRONO) {
-        unsigned long currentMillis = AlarmManager::getChronoTime();
-        int seconds = (currentMillis / 1000) % 60;
-        int minutes = (currentMillis / (1000 * 60)) % 60;
+        drawChronoDigits();
 
-        gfx->setTextSize(5);
-        gfx->setTextColor(RGB565_GREEN);
-        gfx->setCursor(130, 170);
-        gfx->printf("%02d:%02d", minutes, seconds);
-
-        gfx->fillRoundRect(45, 290, 130, 50, 10, AlarmManager::isChronoRunning() ? RGB565_RED : RGB565_GREEN);
-        gfx->setTextColor(RGB565_WHITE);
+        gfx->fillRoundRect(45, 290, 130, 50, 10, AlarmManager::isChronoRunning() ? PAL_ALERTA : PAL_OK);
+        gfx->setTextColor(PAL_TEXTO);
         gfx->setTextSize(2);
         gfx->setCursor(60, 305);
         gfx->print(AlarmManager::isChronoRunning() ? "PAUSA" : "INICIAR");
 
-        gfx->fillRoundRect(235, 290, 130, 50, 10, RGB565_NAVY);
+        gfx->fillRoundRect(235, 290, 130, 50, 10, PAL_LILA);
         gfx->setCursor(265, 305);
         gfx->print("RESET");
     } else if (currentTab == TAB_ADD_ALARM) {
-        gfx->setTextColor(RGB565_WHITE);
+        gfx->setTextColor(PAL_TEXTO_CLARO);
         gfx->setTextSize(2);
         gfx->setCursor(30, 125); gfx->print("Nueva Alarma:");
 
         gfx->setTextSize(5);
-        gfx->setTextColor(RGB565_CYAN);
+        gfx->setTextColor(PAL_CELESTE);
         gfx->setCursor(40, 155);
         gfx->printf("%02d:%02d", tempHour, tempMinute);
 
         gfx->setTextSize(2);
-        gfx->setTextColor(RGB565_YELLOW);
+        gfx->setTextColor(PAL_AMARILLO);
         gfx->setCursor(230, 130);
         gfx->printf("Vol: %d/10", AudioManager::masterVolume);
 
-        gfx->fillRoundRect(230, 155, 60, 40, 6, RGB565_NAVY);
-        gfx->fillRoundRect(300, 155, 60, 40, 6, RGB565_NAVY);
-        gfx->setTextColor(RGB565_WHITE);
+        gfx->fillRoundRect(230, 155, 60, 40, 6, PAL_LILA);
+        gfx->fillRoundRect(300, 155, 60, 40, 6, PAL_LILA);
+        gfx->setTextColor(PAL_TEXTO);
         gfx->setTextSize(3);
         gfx->setCursor(252, 162); gfx->print("-");
         gfx->setCursor(322, 162); gfx->print("+");
 
-        gfx->fillRoundRect(40, 225, 85, 45, 8, RGB565_BLUE);
-        gfx->fillRoundRect(140, 225, 85, 45, 8, RGB565_BLUE);
+        gfx->fillRoundRect(40, 225, 85, 45, 8, PAL_ACENTO);
+        gfx->fillRoundRect(140, 225, 85, 45, 8, PAL_ACENTO);
         gfx->setTextSize(3);
         gfx->setCursor(75, 235); gfx->print("+");
         gfx->setCursor(175, 235); gfx->print("+");
 
-        gfx->fillRoundRect(40, 280, 85, 45, 8, RGB565_BLUE);
-        gfx->fillRoundRect(140, 280, 85, 45, 8, RGB565_BLUE);
+        gfx->fillRoundRect(40, 280, 85, 45, 8, PAL_ACENTO);
+        gfx->fillRoundRect(140, 280, 85, 45, 8, PAL_ACENTO);
         gfx->setCursor(75, 290); gfx->print("-");
         gfx->setCursor(175, 290); gfx->print("-");
 
-        gfx->fillRoundRect(240, 225, 140, 100, 12, RGB565_GREEN);
-        gfx->drawRoundRect(240, 225, 140, 100, 12, RGB565_WHITE);
+        gfx->fillRoundRect(240, 225, 140, 100, 12, PAL_OK);
         gfx->setTextSize(2);
         gfx->setCursor(255, 265);
         gfx->print("GUARDAR");
     } else if (currentTab == TAB_AUDIO && online) {
-        gfx->fillCircle(205, 230, 65, RGB565_BLUE);
-        gfx->drawCircle(205, 230, 65, RGB565_WHITE);
-        gfx->setTextColor(RGB565_WHITE);
+        gfx->fillCircle(205, 230, 65, PAL_ACENTO);
+        gfx->setTextColor(PAL_TEXTO);
         gfx->setTextSize(2);
         gfx->setCursor(160, 222);
         gfx->print("MANTENER");
     }
 
-    gfx->fillRoundRect(100, 430, 210, 45, 12, RGB565_RED);
-    gfx->drawRoundRect(100, 430, 210, 45, 12, RGB565_WHITE);
-    gfx->setTextColor(RGB565_WHITE);
+    gfx->fillRoundRect(100, 430, 210, 45, 12, PAL_ALERTA);
+    gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(2);
     gfx->setCursor(120, 442);
     gfx->print("Cerrar Sesion");
 }
 
 void DisplayUI::drawWifiPortalScreen() {
-    gfx->fillScreen(RGB565_BLACK);
-    gfx->setTextColor(RGB565_CYAN);
+    if (PowerManager::isScreenOff()) return;   // se dibuja al encender
+    gfx->fillScreen(PAL_FONDO);
+    gfx->setTextColor(PAL_CELESTE);
     gfx->setTextSize(2);
     gfx->setCursor(35, 40);
     gfx->print("CONFIGURAR WIFI");
 
-    gfx->setTextColor(RGB565_WHITE);
+    gfx->setTextColor(PAL_TEXTO_CLARO);
     gfx->setCursor(25, 110); gfx->print("1. Conectate a la red:");
-    gfx->setTextColor(RGB565_YELLOW);
+    gfx->setTextColor(PAL_AMARILLO);
     gfx->setCursor(25, 140); gfx->print("   JARVIS-Clock-Config");
 
-    gfx->setTextColor(RGB565_WHITE);
+    gfx->setTextColor(PAL_TEXTO_CLARO);
     gfx->setCursor(25, 200); gfx->print("2. Abre en tu navegador:");
-    gfx->setTextColor(RGB565_YELLOW);
+    gfx->setTextColor(PAL_AMARILLO);
     gfx->setCursor(25, 230); gfx->print("   http://192.168.4.1");
 
-    gfx->fillRoundRect(50, 340, 300, 70, 15, RGB565_RED);
-    gfx->setTextColor(RGB565_WHITE);
+    gfx->fillRoundRect(50, 340, 300, 70, 15, PAL_ALERTA);
+    gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(3);
     gfx->setCursor(120, 362); gfx->print("VOLVER");
 }
 
 void DisplayUI::triggerAlarmRinging(int alarmIdx) {
-    if (PowerManager::isScreenOff()) PowerManager::toggleScreenState();
+    // Si la pantalla estaba apagada, se enciende (sin redibujar: la alarma dibuja la suya).
+    PowerManager::turnScreenOn(false);
 
+    ScreenState previousScreen = currentScreen;
     currentScreen = SCREEN_ALARM_RINGING;
-    gfx->fillScreen(RGB565_RED);
-    gfx->setTextColor(RGB565_WHITE);
+    // Pantalla completa en coral: es lo más llamativo de la paleta y contrasta
+    // con el resto de la interfaz, que es casi toda negra.
+    gfx->fillScreen(PAL_ALERTA);
+    gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(4);
     gfx->setCursor(80, 50); gfx->print("ALARMA!");
 
@@ -284,8 +358,8 @@ void DisplayUI::triggerAlarmRinging(int alarmIdx) {
     gfx->setCursor(110, 120);
     gfx->printf("%02d:%02d", AlarmManager::alarmList[alarmIdx].hour, AlarmManager::alarmList[alarmIdx].minute);
 
-    gfx->fillRoundRect(20, 220, 370, 240, 20, RGB565_WHITE);
-    gfx->setTextColor(RGB565_RED);
+    gfx->fillRoundRect(20, 220, 370, 240, 20, PAL_TEXTO);
+    gfx->setTextColor(PAL_ALERTA);
     gfx->setTextSize(4);
     gfx->setCursor(65, 310); gfx->print("DESACTIVAR");
 
@@ -300,17 +374,18 @@ void DisplayUI::triggerAlarmRinging(int alarmIdx) {
 
     AudioManager::stopTone();
     AlarmManager::alarmList[alarmIdx].active = false;
-    currentScreen = SCREEN_DASHBOARD;
-    drawDashboard();
+    // Vuelve a la pantalla que había (antes iba siempre al dashboard, aunque no
+    // hubiera un perfil abierto).
+    currentScreen = previousScreen;
+    PowerManager::notifyActivity();   // la alarma bloquea el loop: reiniciar la inactividad
+    refreshCurrentScreen();
 }
 
 void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
     if (currentScreen == SCREEN_WIFI_CONFIG) {
         if (tx >= 50 && tx <= 350 && ty >= 340 && ty <= 410) {
             TouchDriver::waitForRelease();
-            WiFi.softAPdisconnect(true);
-            currentScreen = SCREEN_PROFILES;
-            drawProfileMenu();
+            WiFiPortal::stopPortal();      // vuelve al menú y a buscar las redes conocidas
         }
         return;
     }
@@ -374,7 +449,15 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
                 TouchDriver::waitForRelease();
                 return;
             }
-            if (ty >= 225 && ty <= 270) {
+            // GUARDAR va primero: ocupa la misma franja vertical que las filas de +/−,
+            // y si esas se revisaban antes se quedaban con el toque.
+            if (tx >= 235 && tx <= 385 && ty >= 220 && ty <= 330) {
+                AlarmManager::addAlarm(tempHour, tempMinute);
+                currentTab = TAB_AGENDA;
+                TouchDriver::waitForRelease();
+                drawDashboard();
+                return;
+            } else if (ty >= 225 && ty <= 270) {
                 if (tx >= 40 && tx <= 125) tempHour = (tempHour + 1) % 24;
                 if (tx >= 140 && tx <= 225) tempMinute = (tempMinute + 1) % 60;
                 TouchDriver::waitForRelease();
@@ -382,13 +465,7 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
                 return;
             } else if (ty >= 280 && ty <= 325) {
                 if (tx >= 40 && tx <= 125) tempHour = (tempHour + 23) % 24;
-                if (tx >= 140 && ty <= 225) tempMinute = (tempMinute + 59) % 60;
-                TouchDriver::waitForRelease();
-                drawDashboard();
-                return;
-            } else if (tx >= 235 && tx <= 385 && ty >= 220 && ty <= 330) {
-                AlarmManager::addAlarm(tempHour, tempMinute);
-                currentTab = TAB_AGENDA;
+                if (tx >= 140 && tx <= 225) tempMinute = (tempMinute + 59) % 60;
                 TouchDriver::waitForRelease();
                 drawDashboard();
                 return;
@@ -397,14 +474,14 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
 
         // --- BOTÓN DE VOZ CON FEEDBACK Y DETECCIÓN MEJORADA ---
         if (currentTab == TAB_AUDIO && online && tx >= 130 && tx <= 280 && ty >= 150 && ty <= 300) {
-            gfx->fillCircle(205, 230, 65, RGB565_RED);
-            gfx->drawCircle(205, 230, 65, RGB565_WHITE);
-            gfx->setTextColor(RGB565_WHITE);
+            gfx->fillCircle(205, 230, 65, PAL_ALERTA);
+            gfx->setTextColor(PAL_TEXTO);
             gfx->setTextSize(2);
             gfx->setCursor(150, 222);
             gfx->print("GRABANDO");
 
             AudioManager::recordAndSend();
+            PowerManager::notifyActivity();   // la grabación bloquea el loop: reiniciar la inactividad
 
             TouchDriver::waitForRelease();
             drawDashboard();

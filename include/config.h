@@ -11,6 +11,16 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 #define MY_WIFI_SSID     WIFI_SSID
 #define MY_WIFI_PASSWORD WIFI_PASS
 
+// Hotspot del celular (opcional). Para activarlo, agregar en secrets.h:
+//   #define SECRET_HOTSPOT_SSID "nombre del hotspot"
+//   #define SECRET_HOTSPOT_PASS "clave del hotspot"
+// El hotspot tiene que estar en 2,4 GHz (el ESP32-S3 no ve redes de 5 GHz).
+#if defined(SECRET_HOTSPOT_SSID) && defined(SECRET_HOTSPOT_PASS)
+#define HAS_HOTSPOT 1
+#define HOTSPOT_SSID SECRET_HOTSPOT_SSID
+#define HOTSPOT_PASS SECRET_HOTSPOT_PASS
+#endif
+
 // --- ALIAS de nombres de pines viejos -> nuevos (pin_config.h) ---
 #define LCD_D0  LCD_SDIO0
 #define LCD_D1  LCD_SDIO1
@@ -23,18 +33,25 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 #define PMU_SCL 14
 #define TOUCH_I2C_ADDR 0x38
 
-// PINES AUDIO (parlante y micrófono I2S)
-#define I2S_MIC_CLK   47
-#define I2S_MIC_DATA  48
-#define I2S_SPK_BCLK  42
-#define I2S_SPK_LRCK  41
-#define I2S_SPK_DOUT  46
+// Tiempo sin tocar la pantalla hasta que se apaga sola.
+#define SCREEN_TIMEOUT_MS  30000UL
+
+// PINES AUDIO: códec ES8311 (parlante y micrófono por el mismo I2S), tomados
+// del ejemplo 08_ES8311 de Waveshare. El ES8311 se configura por I2C (Wire).
+#define I2S_MCLK      16
+#define I2S_BCLK      41
+#define I2S_WS        45
+#define I2S_DOUT      40    // ESP32 -> ES8311 (parlante)
+#define I2S_DIN       42    // ES8311 -> ESP32 (micrófono)
+#define AUDIO_PA_EN   46    // habilita el amplificador del parlante (HIGH = encendido)
+#define ES8311_ADDR   0x18
 
 // --- usado por AlarmManager ---
 struct AlarmItem {
     int hour;
     int minute;
     bool active;
+    long lastFiredKey;   // minuto (día del año + hora + minuto) en que sonó por última vez; -1 = nunca
 };
 
 // --- PERFILES CON WEBHOOK (backend n8n) ---
@@ -46,7 +63,6 @@ struct UserProfile {
 
 static const UserProfile PROFILES[] = {
     {"user_main",  "Lolo",  SECRET_WEBHOOK_MAIN},
-    {"user_santi", "Santi", ""},
     {"user_delfi", "Delfi", ""},
     {"user_fede",  "Fede",  ""},
     {"user_lucia", "Lucia", ""}
@@ -77,8 +93,13 @@ struct Profile {
     int x, y, w, h;
 };
 
-// --- COLORES RGB565 ---
-// Los RGB565_* vienen de Arduino_GFX; acá solo los que la librería no trae.
-#define DARK_GREEN        0x03E0
+// Los colores de la interfaz están en palette.h.
+
+// --- MARGEN SEGURO ---
+// Las esquinas redondeadas del AMOLED tapan ~50 px a cada lado en la parte
+// de arriba (y abajo). Lo que se dibuje cerca de los bordes tiene que quedar
+// dentro de estos márgenes.
+#define SAFE_MARGIN_X    55
+#define SAFE_MARGIN_TOP  20
 
 #endif

@@ -11,6 +11,8 @@ public:
     static void drawProfileMenu();
     static void drawDashboard();
     static void drawHeaderClockOnly();
+    static void refreshChronoDigits();   // solo si se ve la pestaña CRONO
+    static void refreshNetStatus(bool wifiChanged);   // solo si se ve el dashboard
     static void drawWifiPortalScreen();
     static void triggerAlarmRinging(int alarmIdx);
     static void handleTouch(int16_t x, int16_t y);
@@ -31,6 +33,8 @@ private:
     static unsigned long lastClockUpdate;
 
     static void drawAvatar(int x, int y, uint16_t color, const char* name);
+    static void drawChronoDigits();
+    static void drawNetBox();
 };
 
 #endif
