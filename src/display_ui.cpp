@@ -477,6 +477,7 @@ void DisplayUI::drawDashboard() {
         if (chronoShowTimer) {
             // Botones para cargar el tiempo.
             const char* labels[3] = { "+1 min", "+5 min", "+10 min" };
+            gfx->setTextSize(2);                 // drawChronoDigits dejó el tamaño en 5
             for (int i = 0; i < 3; i++) {
                 int x = 30 + i * 120;
                 gfx->fillRoundRect(x, 225, 110, 45, 10, PAL_LILA);
