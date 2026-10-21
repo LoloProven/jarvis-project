@@ -7,6 +7,7 @@
 #include "palette.h"
 #include "time_sync.h"
 #include "net_status.h"
+#include "step_counter.h"
 #include <WiFi.h>
 
 // --- CORREGIDO: inicialización validada contra el ejemplo oficial de Waveshare ---
@@ -343,6 +344,21 @@ static void drawBattery(Arduino_GFX* g, int x, int y) {
 
 void DisplayUI::drawBottomBar() {
     gfx->fillRect(40, BAR_Y - 6, LCD_WIDTH - 80, BAR_H + 10, PAL_FONDO);
+
+    // Pasos y distancia de hoy, en dos renglones.
+    gfx->setTextSize(2);
+    if (StepCounter::available()) {
+        gfx->setTextColor(PAL_MENTA);
+        gfx->setCursor(60, BAR_Y + 2);
+        gfx->printf("%lu pasos", (unsigned long)StepCounter::steps());
+        gfx->setTextColor(PAL_TEXTO_CLARO);
+        gfx->setCursor(60, BAR_Y + 26);
+        gfx->printf("%.2f km", StepCounter::distanceKm());
+    } else {
+        gfx->setTextColor(PAL_LILA);
+        gfx->setCursor(60, BAR_Y + 16);
+        gfx->print("sin sensor");
+    }
 
     drawBattery(gfx, BATT_X, BAR_Y + 16);
 

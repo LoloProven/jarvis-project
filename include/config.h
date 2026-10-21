@@ -36,6 +36,10 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 // Tiempo sin tocar la pantalla hasta que se apaga sola.
 #define SCREEN_TIMEOUT_MS  30000UL
 
+// Largo de un paso para calcular la distancia (cm). Ajustalo a tu paso:
+// caminá 10 pasos, medí la distancia y dividila por 10.
+#define STEP_LENGTH_CM  70
+
 // PINES AUDIO: códec ES8311 (parlante y micrófono por el mismo I2S), tomados
 // del ejemplo 08_ES8311 de Waveshare. El ES8311 se configura por I2C (Wire).
 #define I2S_MCLK      16

@@ -7,11 +7,13 @@
 #include "wifi_portal.h"
 #include "time_sync.h"
 #include "net_status.h"
+#include "step_counter.h"
 
 static unsigned long lastClockUpdate = 0;
 static NetState lastNetState = NET_NO_WIFI;
 static int lastBattery = -2;
 static bool lastCharging = false;
+static uint32_t lastSteps = 0;
 // Después de despertar con un toque, se ignora la pantalla hasta que se suelte el dedo,
 // así el toque que despierta no activa el botón que quedó debajo.
 static bool ignoreUntilRelease = false;
@@ -28,6 +30,7 @@ void setup() {
     // Zona horaria y hora de respaldo; tiene que ir antes de conectar el WiFi
     // para no perderse el evento de conexión.
     TimeSync::init();
+    StepCounter::init();           // después de TimeSync: necesita la fecha para saber qué día es
     NetStatus::init();
 
     WiFiPortal::initSaved();
@@ -38,6 +41,7 @@ void loop() {
     // Esto corre siempre, con la pantalla encendida o apagada.
     PowerManager::checkButton();
     PowerManager::updateBattery();        // lee el AXP2101 cada 30 s
+    StepCounter::loop();                  // lee el podómetro cada 2 s
     TimeSync::loop();
     AlarmManager::checkAlarms();          // si suena con la pantalla apagada, la enciende
 
@@ -78,9 +82,11 @@ void loop() {
 
     int batt = PowerManager::batteryPercent();
     bool charging = PowerManager::isCharging();
-    if (batt != lastBattery || charging != lastCharging) {
+    uint32_t steps = StepCounter::steps();
+    if (batt != lastBattery || charging != lastCharging || steps != lastSteps) {
         lastBattery = batt;
         lastCharging = charging;
+        lastSteps = steps;
         DisplayUI::refreshBottomBar();
     }
 
