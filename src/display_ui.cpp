@@ -635,8 +635,10 @@ void DisplayUI::drawWifiPortalScreen() {
     gfx->setCursor(120, 362); gfx->print("VOLVER");
 }
 
-void DisplayUI::triggerAlarmRinging(int alarmIdx) {
-    // Si la pantalla estaba apagada, se enciende (sin redibujar: la alarma dibuja la suya).
+// Pantalla que suena (alarma o temporizador). Bloquea hasta que se toca un botón y
+// devuelve true si se eligió POSPONER. Al terminar vuelve a la pantalla que había.
+bool DisplayUI::ringScreen(const char* title, const char* timeText, bool allowSnooze) {
+    // Si la pantalla estaba apagada, se enciende (sin redibujar: esta pantalla dibuja la suya).
     PowerManager::turnScreenOn(false);
 
     ScreenState previousScreen = currentScreen;
@@ -646,35 +648,50 @@ void DisplayUI::triggerAlarmRinging(int alarmIdx) {
     gfx->fillScreen(PAL_ALERTA);
     gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(4);
-    gfx->setCursor((LCD_WIDTH - 7 * 24) / 2, 50); gfx->print("ALARMA!");
-
+    gfx->setCursor((LCD_WIDTH - strlen(title) * 24) / 2, 50); gfx->print(title);
     gfx->setTextSize(6);
-    gfx->setCursor((LCD_WIDTH - 5 * 36) / 2, 120);
-    gfx->printf("%02d:%02d", AlarmManager::alarmList[alarmIdx].hour, AlarmManager::alarmList[alarmIdx].minute);
+    gfx->setCursor((LCD_WIDTH - strlen(timeText) * 36) / 2, 120); gfx->print(timeText);
 
-    // Caja más angosta y más corta que antes (20..390 x 220..460) para que las
-    // esquinas redondeadas de abajo no le coman los bordes.
-    gfx->fillRoundRect(40, 220, LCD_WIDTH - 80, 225, 20, PAL_TEXTO);
+    // Cajas entre x 40..370 y hasta y=445, lejos de las esquinas redondeadas de abajo.
+    const int SNOOZE_Y = 220, SNOOZE_H = 95;
+    const int OFF_Y = allowSnooze ? 330 : 220;
+    const int OFF_H = 445 - OFF_Y;
+    if (allowSnooze) {
+        gfx->fillRoundRect(40, SNOOZE_Y, LCD_WIDTH - 80, SNOOZE_H, 20, PAL_TEXTO_CLARO);
+        gfx->setTextColor(PAL_TEXTO);
+        gfx->setTextSize(3);
+        gfx->setCursor((LCD_WIDTH - 8 * 18) / 2, SNOOZE_Y + 22); gfx->print("POSPONER");
+        gfx->setTextSize(2);
+        gfx->setCursor((LCD_WIDTH - 5 * 12) / 2, SNOOZE_Y + 60); gfx->print("5 min");
+    }
+    gfx->fillRoundRect(40, OFF_Y, LCD_WIDTH - 80, OFF_H, 20, PAL_TEXTO);
     gfx->setTextColor(PAL_ALERTA);
     gfx->setTextSize(4);
-    gfx->setCursor((LCD_WIDTH - 10 * 24) / 2, 315); gfx->print("DESACTIVAR");
+    gfx->setCursor((LCD_WIDTH - 10 * 24) / 2, OFF_Y + (OFF_H - 32) / 2); gfx->print("DESACTIVAR");
 
+    bool snoozed = false;
     while (true) {
         AudioManager::playTone(AudioManager::masterVolume);
         int16_t tx, ty;
-        if (TouchDriver::getTouch(tx, ty) && ty >= 200) {
-            TouchDriver::waitForRelease();
-            break;
+        if (TouchDriver::getTouch(tx, ty)) {
+            if (allowSnooze && ty >= SNOOZE_Y && ty <= SNOOZE_Y + SNOOZE_H) { snoozed = true; break; }
+            if (ty >= OFF_Y) break;
         }
     }
-
+    TouchDriver::waitForRelease();
     AudioManager::stopTone();
-    // La alarma sigue activa: vuelve a sonar mañana a la misma hora.
-    // Vuelve a la pantalla que había (antes iba siempre al dashboard, aunque no
-    // hubiera un perfil abierto).
+
     currentScreen = previousScreen;
-    PowerManager::notifyActivity();   // la alarma bloquea el loop: reiniciar la inactividad
+    PowerManager::notifyActivity();   // esto bloquea el loop: reiniciar la inactividad
     refreshCurrentScreen();
+    return snoozed;
+}
+
+void DisplayUI::triggerAlarmRinging(int alarmIdx) {
+    char t[8];
+    snprintf(t, sizeof(t), "%02d:%02d", AlarmManager::alarmList[alarmIdx].hour, AlarmManager::alarmList[alarmIdx].minute);
+    if (ringScreen("ALARMA!", t, true)) AlarmManager::snooze(alarmIdx, 5);
+    // Si se desactiva, la alarma sigue activa: vuelve a sonar mañana a la misma hora.
 }
 
 void DisplayUI::handleTouch(int16_t tx, int16_t ty) {

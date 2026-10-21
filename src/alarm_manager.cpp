@@ -72,8 +72,23 @@ void AlarmManager::toggleAlarm(int index) {
     save();
 }
 
+// Posponer: la alarma vuelve a sonar en snoozeAt (hora del sistema). No se guarda en la
+// memoria: si el reloj se reinicia, se pierde el "posponer" (la alarma diaria no).
+static time_t snoozeAt = 0;
+static int snoozeIdx = -1;
+
+void AlarmManager::snooze(int index, int minutes) {
+    snoozeIdx = index;
+    snoozeAt = time(nullptr) + minutes * 60;
+}
+
 // Las alarmas se repiten todos los días a la misma hora mientras estén activas.
 void AlarmManager::checkAlarms() {
+    if (snoozeAt != 0 && time(nullptr) >= snoozeAt) {
+        snoozeAt = 0;
+        if (snoozeIdx >= 0 && snoozeIdx < alarmCount) DisplayUI::triggerAlarmRinging(snoozeIdx);
+    }
+
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo, 0)) return;
 

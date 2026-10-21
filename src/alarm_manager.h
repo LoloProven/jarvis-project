@@ -12,6 +12,7 @@ public:
     static void addAlarm(int h, int m);
     static void deleteAlarm(int index);
     static void toggleAlarm(int index);   // activa/desactiva sin borrarla
+    static void snooze(int index, int minutes);   // vuelve a sonar dentro de "minutes"
 
     // Cronómetro
     static void toggleChrono();
