@@ -267,6 +267,54 @@ static void drawMusicTab(Arduino_GFX* g) {
     }
 }
 
+// --- Toques en los botones de música (sin bloquear) ---
+// handleTouch se llama en cada vuelta del loop mientras el dedo está apoyado. Si el
+// último toque fue hace menos de MUSIC_HOLD_GAP_MS es el mismo dedo todavía apoyado.
+static const unsigned long MUSIC_HOLD_GAP_MS  = 90;
+static const unsigned long MUSIC_REPEAT_AFTER = 450;   // mantener volumen: empieza a repetir...
+static const unsigned long MUSIC_REPEAT_EVERY = 150;   // ...y repite cada 150 ms
+static const unsigned long MUSIC_FLASH_MS     = 120;
+static int musicHeld = -1;                 // botón que se está apretando
+static unsigned long musicLastTouch = 0, musicHeldSince = 0, musicLastSend = 0;
+static int musicFlash = -1;                // botón pintado de menta
+static unsigned long musicFlashUntil = 0;
+
+static void musicSend(Arduino_GFX* g, int i) {
+    const MusicButton& b = MUSIC_BUTTONS[i];
+    MediaRemote::press(b.key);
+    musicLastSend = millis();
+    drawMusicButton(g, b, PAL_MENTA, PAL_TEXTO);
+    musicFlash = i;
+    musicFlashUntil = millis() + MUSIC_FLASH_MS;
+}
+
+void DisplayUI::handleMusicButton(int i) {
+    unsigned long now = millis();
+    bool sameFinger = (musicHeld == i) && (now - musicLastTouch < MUSIC_HOLD_GAP_MS);
+    musicLastTouch = now;
+    if (!sameFinger) {                       // toque nuevo: se manda ya
+        musicHeld = i;
+        musicHeldSince = now;
+        musicSend(gfx, i);
+        return;
+    }
+    MediaRemote::Key k = MUSIC_BUTTONS[i].key;
+    bool isVolume = (k == MediaRemote::VOL_UP || k == MediaRemote::VOL_DOWN);
+    if (isVolume && now - musicHeldSince > MUSIC_REPEAT_AFTER && now - musicLastSend > MUSIC_REPEAT_EVERY) {
+        musicSend(gfx, i);                   // volumen mantenido: repite
+    }
+}
+
+// Vuelve a pintar de celeste el botón que titiló (se llama en cada vuelta del loop).
+void DisplayUI::musicTick() {
+    if (musicFlash < 0 || millis() < musicFlashUntil) return;
+    int i = musicFlash;
+    musicFlash = -1;
+    if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD || currentTab != TAB_MUSIC) return;
+    drawMusicButton(gfx, MUSIC_BUTTONS[i], MediaRemote::isConnected() ? PAL_ACENTO : PAL_TARJETA,
+                    MediaRemote::isConnected() ? PAL_TEXTO : PAL_LILA);
+}
+
 // Si cambia el estado de la conexión Bluetooth con la pestaña a la vista, se redibuja.
 void DisplayUI::refreshMusicTab() {
     if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD || currentTab != TAB_MUSIC) return;
@@ -652,19 +700,18 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
             }
         }
 
-        // MÚSICA: cada botón manda la tecla multimedia al celular. El botón se pone
-        // menta mientras se aprieta, como confirmación.
+        // MÚSICA: la tecla se manda apenas se toca, sin esperar a que se suelte el dedo
+        // (antes waitForRelease frenaba hasta 0,8 s y no se podía apretar rápido).
+        // Mantener VOL+/VOL- repite la tecla. El botón titila en menta (ver musicTick).
         if (currentTab == TAB_MUSIC && MediaRemote::isConnected()) {
             for (int i = 0; i < MUSIC_BUTTON_COUNT; i++) {
                 const MusicButton& b = MUSIC_BUTTONS[i];
                 if (tx >= b.x && tx <= b.x + b.w && ty >= b.y && ty <= b.y + b.h) {
-                    drawMusicButton(gfx, b, PAL_MENTA, PAL_TEXTO);
-                    MediaRemote::press(b.key);
-                    TouchDriver::waitForRelease();
-                    drawMusicButton(gfx, b, PAL_ACENTO, PAL_TEXTO);
+                    handleMusicButton(i);
                     return;
                 }
             }
+            musicHeld = -1;
         }
 
         if (tx >= SALIR_X && tx <= SALIR_X + SALIR_W && ty >= BAR_Y && ty <= BAR_Y + 45) {

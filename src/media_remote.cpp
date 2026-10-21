@@ -141,8 +141,7 @@ void MediaRemote::press(Key key) {
     uint8_t report[2] = { (uint8_t)(bits & 0xFF), (uint8_t)(bits >> 8) };
     inputMedia->setValue(report, 2);
     inputMedia->notify();
-    delay(30);
-    report[0] = report[1] = 0;
+    report[0] = report[1] = 0;               // soltar enseguida (como ESP32-BLE-Keyboard)
     inputMedia->setValue(report, 2);
     inputMedia->notify();
 }

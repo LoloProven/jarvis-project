@@ -99,6 +99,8 @@ void loop() {
         }
     }
 
+    DisplayUI::musicTick();                    // botón de música que titiló: vuelve a celeste
+
     if (touched) {
         DisplayUI::handleTouch(tx, ty);
     }

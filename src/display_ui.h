@@ -15,6 +15,7 @@ public:
     static void refreshNetStatus(bool wifiChanged);   // solo si se ve el dashboard
     static void refreshBottomBar();                   // pasos y batería; solo si se ve el dashboard
     static void refreshMusicTab();                    // si cambió la conexión Bluetooth
+    static void musicTick();                          // vuelve el color del botón que titiló
     static void drawWifiPortalScreen();
     static void showSleepMessage();      // aviso antes de entrar en modo dormir
     static void triggerAlarmRinging(int alarmIdx);
@@ -39,6 +40,7 @@ private:
     static void drawChronoDigits();
     static void drawNetBox();
     static void drawBottomBar();
+    static void handleMusicButton(int index);
 };
 
 #endif
