@@ -1,14 +1,15 @@
 #include "media_remote.h"
 #include <Arduino.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEHIDDevice.h>
-#include <BLESecurity.h>
+#include <NimBLEDevice.h>
+#include <NimBLEHIDDevice.h>
 
-// Armado igual que la librería ESP32-BLE-Keyboard (T-vK), que funciona con iPhone:
-// un teclado (reporte 1, que no se usa pero iOS lo espera) más las teclas multimedia
-// (reporte 2, 16 bits). La primera versión, solo multimedia y con el código de fabricante
-// de Apple del ejemplo Server_Gamepad, se vinculaba pero el iPhone ignoraba las teclas.
+// Hecho con NimBLE-Arduino (h2zero), como la versión NimBLE de ESP32-BLE-Keyboard, que
+// funciona con iPhone: teclado (reporte 1, no se usa pero iOS lo espera) + teclas
+// multimedia (reporte 2, 16 bits).
+//
+// Con la librería BLE del core no funcionaba: con NimBLE descarta la segunda
+// característica con el mismo UUID (en HID todos los reportes son 0x2A4D), así que no
+// se podía tener teclado + multimedia, y con un solo reporte el iPhone ignoraba las teclas.
 static const char* DEVICE_NAME = "JARVIS Reloj";
 
 static const uint8_t REPORT_MAP[] = {
@@ -23,10 +24,11 @@ static const uint8_t REPORT_MAP[] = {
     0x95, 0x06, 0x75, 0x08, 0x15, 0x00, 0x25, 0x65,
     0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00,   // 6 teclas
     0xC0,
-    // --- Teclas multimedia (reporte 2, 16 bits) ---
+    // --- Teclas multimedia (reporte 2, 16 bits), tal cual ESP32-BLE-Keyboard ---
     0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01,       // Consumer / Consumer Control / Collection
     0x85, 0x02,                               //   Report ID (2)
-    0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x07,
+    0x05, 0x0C,
+    0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x10,   // 16 bits
     0x09, 0xB5,                               //   bit 0: siguiente
     0x09, 0xB6,                               //   bit 1: anterior
     0x09, 0xB7,                               //   bit 2: stop
@@ -34,8 +36,10 @@ static const uint8_t REPORT_MAP[] = {
     0x09, 0xE2,                               //   bit 4: mute
     0x09, 0xE9,                               //   bit 5: volumen +
     0x09, 0xEA,                               //   bit 6: volumen -
+    0x0A, 0x23, 0x02, 0x0A, 0x94, 0x01, 0x0A, 0x92, 0x01, 0x0A, 0x2A, 0x02,   // bits 7-10
+    0x0A, 0x21, 0x02, 0x0A, 0x26, 0x02, 0x0A, 0x24, 0x02, 0x0A, 0x83, 0x01,   // bits 11-14
+    0x0A, 0x8A, 0x01,                                                         // bit 15
     0x81, 0x02,
-    0x95, 0x09, 0x81, 0x01,                   //   relleno hasta 16 bits
     0xC0
 };
 
@@ -50,39 +54,30 @@ static uint16_t keyBit(MediaRemote::Key k) {
     return 0;
 }
 
-static BLEHIDDevice* hid = nullptr;
-static BLECharacteristic* inputKeyboard = nullptr;
-static BLECharacteristic* inputMedia = nullptr;
+static NimBLEHIDDevice* hid = nullptr;
+static NimBLECharacteristic* inputMedia = nullptr;
 static volatile bool connected = false;
-static volatile bool mediaSubscribed = false;   // el celular pidió recibir las teclas
+static volatile bool mediaSubscribed = false;
 
-class RemoteServerCallbacks : public BLEServerCallbacks {
-    void onConnect(BLEServer*) override {
+class RemoteServerCallbacks : public NimBLEServerCallbacks {
+    void onConnect(NimBLEServer*, NimBLEConnInfo& info) override {
         connected = true;
         Serial.println("[bt] celular conectado");
     }
-    void onDisconnect(BLEServer*) override {
+    void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
         connected = false;
         mediaSubscribed = false;
-        Serial.println("[bt] celular desconectado");
-        BLEDevice::startAdvertising();       // vuelve a quedar visible para reconectarse
+        Serial.printf("[bt] celular desconectado (motivo %d)\n", reason);
+        // advertiseOnDisconnect(true) lo vuelve a dejar visible solo.
     }
-};
-
-class RemoteSecurityCallbacks : public BLESecurityCallbacks {
-    uint32_t onPassKeyRequest() override { return 0; }
-    void onPassKeyNotify(uint32_t) override {}
-    bool onSecurityRequest() override { return true; }
-    bool onConfirmPIN(uint32_t) override { return true; }
-    void onAuthenticationComplete(ble_gap_conn_desc* desc) override {
+    void onAuthenticationComplete(NimBLEConnInfo& info) override {
         Serial.printf("[bt] vinculacion %s (cifrado=%d, vinculado=%d)\n",
-                      desc->sec_state.encrypted ? "OK" : "FALLO",
-                      desc->sec_state.encrypted, desc->sec_state.bonded);
+                      info.isEncrypted() ? "OK" : "FALLO", info.isEncrypted(), info.isBonded());
     }
 };
 
-class MediaReportCallbacks : public BLECharacteristicCallbacks {
-    void onSubscribe(BLECharacteristic*, ble_gap_conn_desc*, uint16_t subValue) override {
+class MediaReportCallbacks : public NimBLECharacteristicCallbacks {
+    void onSubscribe(NimBLECharacteristic*, NimBLEConnInfo&, uint16_t subValue) override {
         mediaSubscribed = (subValue != 0);
         Serial.printf("[bt] el celular %s las teclas multimedia\n",
                       mediaSubscribed ? "se suscribio a" : "se desuscribio de");
@@ -90,38 +85,52 @@ class MediaReportCallbacks : public BLECharacteristicCallbacks {
 };
 
 void MediaRemote::init() {
-    BLEDevice::init(DEVICE_NAME);
+    if (hid != nullptr) return;
+    NimBLEDevice::init(DEVICE_NAME);
 
     // "Just Works": se vincula sin código, como unos auriculares o un control remoto.
-    BLESecurity* security = new BLESecurity();
-    security->setCapability(ESP_IO_CAP_NONE);
-    security->setAuthenticationMode(true, false, true);   // bonding, sin MITM, conexión segura
-    BLEDevice::setSecurityCallbacks(new RemoteSecurityCallbacks());
+    NimBLEDevice::setSecurityAuth(true, false, true);    // bonding, sin MITM, conexión segura
+    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
-    BLEServer* server = BLEDevice::createServer();
+    NimBLEServer* server = NimBLEDevice::createServer();
     server->setCallbacks(new RemoteServerCallbacks());
+    server->advertiseOnDisconnect(true);
 
-    hid = new BLEHIDDevice(server);
-    inputKeyboard = hid->inputReport(1);
-    hid->outputReport(1);                  // LEDs del teclado (no se usan)
-    inputMedia = hid->inputReport(2);
+    hid = new NimBLEHIDDevice(server);
+    hid->getInputReport(1);                // teclado (no se usa)
+    hid->getOutputReport(1);               // LEDs del teclado (no se usan)
+    inputMedia = hid->getInputReport(2);
     inputMedia->setCallbacks(new MediaReportCallbacks());
 
-    hid->manufacturer()->setValue("Proyecto JARVIS");
-    hid->pnp(0x02, 0xe502, 0xa111, 0x0210);   // IDs de ESP32-BLE-Keyboard (antes eran los de Apple)
-    hid->hidInfo(0x00, 0x01);
-    hid->reportMap((uint8_t*)REPORT_MAP, sizeof(REPORT_MAP));
+    hid->setManufacturer("Proyecto JARVIS");
+    hid->setPnp(0x02, 0xe502, 0xa111, 0x0210);   // IDs de ESP32-BLE-Keyboard
+    hid->setHidInfo(0x00, 0x01);
+    hid->setReportMap((uint8_t*)REPORT_MAP, sizeof(REPORT_MAP));
     hid->setBatteryLevel(100);
-    hid->startServices();
+    server->start();
 
-    BLEAdvertising* adv = BLEDevice::getAdvertising();
+    NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
     adv->setAppearance(HID_KEYBOARD);
-    adv->addServiceUUID(hid->hidService()->getUUID());
-    adv->setScanResponse(true);
-    BLEDevice::startAdvertising();
+    adv->addServiceUUID(hid->getHidService()->getUUID());
+    adv->enableScanResponse(true);
+    adv->setName(DEVICE_NAME);
+    adv->start();
     Serial.println("[bt] visible como \"JARVIS Reloj\"");
 }
 
+// Apaga el Bluetooth del todo (para el modo dormir: con el Bluetooth prendido el chip
+// no puede entrar en sueño liviano). init() lo vuelve a prender; el iPhone se reconecta solo.
+void MediaRemote::stop() {
+    if (hid == nullptr) return;
+    NimBLEDevice::deinit(true);            // true: libera servidor, servicios y callbacks
+    hid = nullptr;
+    inputMedia = nullptr;
+    connected = false;
+    mediaSubscribed = false;
+    Serial.println("[bt] apagado");
+}
+
+bool MediaRemote::isEnabled() { return hid != nullptr; }
 bool MediaRemote::isConnected() { return connected; }
 
 // Una "pulsación": se manda la tecla apretada y enseguida suelta (2 bytes, little endian).

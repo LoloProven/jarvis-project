@@ -12,7 +12,9 @@ class MediaRemote {
 public:
     enum Key { PREV, PLAY_PAUSE, NEXT, VOL_UP, VOL_DOWN };
 
-    static void init();
+    static void init();            // prende el Bluetooth (también sirve para volver a prenderlo)
+    static void stop();            // lo apaga del todo (antes del modo dormir)
+    static bool isEnabled();       // el Bluetooth está prendido (impide el sueño liviano)
     static bool isConnected();
     static void press(Key key);
 };
