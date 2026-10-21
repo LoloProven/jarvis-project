@@ -11,10 +11,6 @@
 
 static unsigned long lastClockUpdate = 0;
 static NetState lastNetState = NET_NO_WIFI;
-static int lastBattery = -2;
-static bool lastCharging = false;
-static uint32_t lastSteps = 0;
-static int lastSpeedTenths = 0;
 // Después de despertar con un toque, se ignora la pantalla hasta que se suelte el dedo,
 // así el toque que despierta no activa el botón que quedó debajo.
 static bool ignoreUntilRelease = false;
@@ -81,21 +77,12 @@ void loop() {
         DisplayUI::refreshNetStatus(wifiChanged);
     }
 
-    int batt = PowerManager::batteryPercent();
-    bool charging = PowerManager::isCharging();
-    uint32_t steps = StepCounter::steps();
-    int speedTenths = (int)(StepCounter::speedKmh() * 10);   // cambia aunque no haya pasos nuevos (al frenar)
-    if (batt != lastBattery || charging != lastCharging || steps != lastSteps || speedTenths != lastSpeedTenths) {
-        lastBattery = batt;
-        lastCharging = charging;
-        lastSteps = steps;
-        lastSpeedTenths = speedTenths;
-        DisplayUI::refreshBottomBar();
-    }
-
+    // Una vez por segundo: hora, barra inferior (pasos, km, velocidad, batería) y
+    // cronómetro. Cada uno redibuja solo lo que cambió, así la pantalla no parpadea.
     if (DisplayUI::getCurrentScreen() == SCREEN_DASHBOARD && millis() - lastClockUpdate > 1000) {
         lastClockUpdate = millis();
         DisplayUI::drawHeaderClockOnly();
+        DisplayUI::refreshBottomBar();
         if (AlarmManager::isChronoRunning()) {
             DisplayUI::refreshChronoDigits();   // solo los dígitos, y solo en la pestaña CRONO
         }
