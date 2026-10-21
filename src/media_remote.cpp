@@ -102,6 +102,15 @@ static void onAmsUpdate(NimBLERemoteCharacteristic*, uint8_t* data, size_t len, 
     if (entity == AMS_ENTITY_TRACK && attr == AMS_TRACK_TITLE) {
         toAscii(val, vlen, trackTitle, sizeof(trackTitle));
     } else if (entity == AMS_ENTITY_TRACK && attr == AMS_TRACK_ARTIST) {
+        // Spotify agrega " • Video disponible" (y cosas así) después del artista: se corta
+        // en el " • " (punto U+2022, en UTF-8 E2 80 A2) para dejar solo el artista.
+        for (size_t i = 0; i + 2 < vlen; i++) {
+            if (val[i] == 0xE2 && val[i + 1] == 0x80 && val[i + 2] == 0xA2) {
+                vlen = i;
+                while (vlen > 0 && val[vlen - 1] == ' ') vlen--;
+                break;
+            }
+        }
         toAscii(val, vlen, trackArtist, sizeof(trackArtist));
     } else if (entity == AMS_ENTITY_PLAYER && attr == AMS_PLAYER_PLAYBACK_INFO) {
         trackPlaying = (vlen > 0 && val[0] == '1');  // "estado,velocidad,tiempo": 1 = sonando
