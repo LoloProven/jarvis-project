@@ -19,6 +19,7 @@ public:
     static void drawWifiPortalScreen();
     static void showSleepMessage();      // aviso antes de entrar en modo dormir
     static void drawSettingsScreen();    // AJUSTES: brillo, volumen y WiFi
+    static void drawBigClock();          // hora grande en blanco sobre negro (levantar la muñeca)
     static void triggerAlarmRinging(int alarmIdx);
     // Pantalla que suena (alarma/temporizador); devuelve true si se eligió POSPONER.
     static bool ringScreen(const char* title, const char* timeText, bool allowSnooze);

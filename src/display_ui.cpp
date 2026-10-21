@@ -626,6 +626,28 @@ void DisplayUI::refreshBottomBar() {
     updateBarFields(gfx, false, currentTab == TAB_CHRONO);
 }
 
+// Hora grande en blanco sobre fondo negro, con la fecha abajo. Tamaño 10: cada número
+// mide 60x80 px, "HH:MM" ocupa 300 px y queda centrado lejos de las esquinas.
+void DisplayUI::drawBigClock() {
+    static const char* DAYS[7]    = { "Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab" };
+    static const char* MONTHS[12] = { "ene", "feb", "mar", "abr", "may", "jun",
+                                      "jul", "ago", "sep", "oct", "nov", "dic" };
+    gfx->fillScreen(PAL_FONDO);
+    struct tm t;
+    if (!getLocalTime(&t, 0)) return;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
+    gfx->setTextColor(0xFFFF);                   // blanco puro
+    gfx->setTextSize(10);
+    gfx->setCursor((LCD_WIDTH - 5 * 60) / 2, 170);
+    gfx->print(buf);
+    snprintf(buf, sizeof(buf), "%s %d %s", DAYS[t.tm_wday], t.tm_mday, MONTHS[t.tm_mon]);
+    gfx->setTextColor(PAL_LILA);
+    gfx->setTextSize(3);
+    gfx->setCursor((LCD_WIDTH - strlen(buf) * 18) / 2, 290);
+    gfx->print(buf);
+}
+
 void DisplayUI::showSleepMessage() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);

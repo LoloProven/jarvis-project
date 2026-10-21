@@ -16,6 +16,9 @@ static NetState lastNetState = NET_NO_WIFI;
 // Después de despertar con un toque, se ignora la pantalla hasta que se suelte el dedo,
 // así el toque que despierta no activa el botón que quedó debajo.
 static bool ignoreUntilRelease = false;
+// Hora grande al levantar la muñeca: cuánto se muestra antes de apagarse sola.
+static const unsigned long GLANCE_MS = 5000;
+static unsigned long glanceUntil = 0;
 
 void setup() {
     Serial.begin(115200);
@@ -66,11 +69,27 @@ void loop() {
         if (touched) {
             PowerManager::turnScreenOn();  // el primer toque solo despierta
             ignoreUntilRelease = true;
+        } else if (StepCounter::takeWristRaise()) {
+            PowerManager::glanceOn();      // levantó la muñeca: hora grande
+            DisplayUI::drawBigClock();
+            glanceUntil = millis() + GLANCE_MS;
         } else {
             delay(20);
         }
         return;                            // con la pantalla apagada no se dibuja nada
     }
+
+    // Vistazo (hora grande): un toque entra al reloj normal; si no, se apaga solo.
+    if (PowerManager::isGlance()) {
+        if (touched) {
+            PowerManager::turnScreenOn();  // completa el encendido y dibuja la pantalla actual
+            ignoreUntilRelease = true;
+        } else if ((long)(millis() - glanceUntil) > 0) {
+            PowerManager::turnScreenOff();
+        }
+        return;
+    }
+    StepCounter::takeWristRaise();         // con la pantalla prendida no hace falta
 
     if (ignoreUntilRelease) {
         if (!touched) ignoreUntilRelease = false;

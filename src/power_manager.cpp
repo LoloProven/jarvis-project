@@ -41,20 +41,45 @@ static unsigned long screenOffSince = 0;
 
 // Solo se apaga el panel. No se tocan las salidas del AXP2101: DC1 alimenta al
 // sistema, y cortarlo apagaba o reiniciaba el reloj entero.
+// "Vistazo": al levantar la muñeca se prende solo el panel para mostrar la hora grande,
+// sin acelerar el procesador ni reconectar el WiFi (gasta poco). Si después se toca la
+// pantalla, turnScreenOn() completa el encendido.
+static bool glance = false;
+
 void PowerManager::turnScreenOff() {
     if (screenOff) return;
     screenOff = true;
-    screenOffSince = millis();
+    if (!glance) screenOffSince = millis();  // un vistazo no reinicia la cuenta para dormir
+    glance = false;
     DisplayUI::getGFX()->displayOff();
     NetStatus::setPaused(true);
     setCpuFrequencyMhz(80);
 }
+
+void PowerManager::glanceOn() {
+    if (!screenOff || sleeping) return;
+    lastActivity = millis();
+    screenOff = false;
+    glance = true;
+    DisplayUI::getGFX()->displayOn();
+    Settings::applyBrightness();
+}
+
+bool PowerManager::isGlance() { return glance; }
 
 void PowerManager::turnScreenOn(bool redraw) {
     lastActivity = millis();
     if (sleeping) {                          // prender la pantalla siempre sale del modo dormir
         sleeping = false;
         MediaRemote::init();                 // el Bluetooth se apagó al dormir
+    }
+    if (glance) {                            // venía de un vistazo: el panel ya está prendido
+        glance = false;
+        setCpuFrequencyMhz(240);
+        NetStatus::setPaused(false);
+        WiFiPortal::resume();
+        if (redraw) DisplayUI::refreshCurrentScreen();
+        return;
     }
     if (!screenOff) return;
     screenOff = false;
