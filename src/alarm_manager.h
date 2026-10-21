@@ -20,6 +20,13 @@ public:
     static bool isChronoRunning();
     static unsigned long getChronoTime();
 
+    // Temporizador (cuenta regresiva). Al llegar a 0 suena como una alarma.
+    static void timerAdd(int minutes);        // suma minutos (también mientras corre)
+    static void toggleTimer();                // iniciar / pausa
+    static void resetTimer();
+    static bool isTimerRunning();
+    static unsigned long getTimerRemaining(); // ms que faltan
+
     static AlarmItem alarmList[MAX_ALARMS];
     static int alarmCount;
 

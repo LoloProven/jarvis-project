@@ -212,8 +212,13 @@ static const int CHRONO_Y      = 170;
 static const int CHRONO_H      = 40;                  // setTextSize(5): 8 px * 5
 static const int CHRONO_CHAR_W = 30;                  // 6 px * 5
 
+// La pestaña CRONO tiene dos modos: cronómetro y temporizador (selector arriba).
+static bool chronoShowTimer = false;
+
 void DisplayUI::drawChronoDigits() {
-    unsigned long ms = AlarmManager::getChronoTime();
+    // Temporizador: se redondea hacia arriba (con 0,4 s restantes todavía muestra 00:01).
+    unsigned long ms = chronoShowTimer ? AlarmManager::getTimerRemaining() + 999
+                                       : AlarmManager::getChronoTime();
     unsigned long totalSec = ms / 1000;
     int seconds = totalSec % 60;
     int minutes = (totalSec / 60) % 60;
@@ -458,16 +463,39 @@ void DisplayUI::drawDashboard() {
             }
         }
     } else if (currentTab == TAB_CHRONO) {
+        // Selector de modo: [CRONOMETRO | TEMPORIZADOR]
+        gfx->setTextSize(2);
+        gfx->fillRoundRect(25, 118, 178, 36, 8, chronoShowTimer ? PAL_TARJETA : PAL_ACENTO);
+        gfx->fillRoundRect(207, 118, 178, 36, 8, chronoShowTimer ? PAL_ACENTO : PAL_TARJETA);
+        gfx->setTextColor(chronoShowTimer ? PAL_TEXTO_CLARO : PAL_TEXTO);
+        gfx->setCursor(25 + (178 - 10 * 12) / 2, 128); gfx->print("CRONOMETRO");
+        gfx->setTextColor(chronoShowTimer ? PAL_TEXTO : PAL_TEXTO_CLARO);
+        gfx->setCursor(207 + (178 - 12 * 12) / 2, 128); gfx->print("TEMPORIZADOR");
+
         drawChronoDigits();
 
-        gfx->fillRoundRect(45, 290, 130, 50, 10, AlarmManager::isChronoRunning() ? PAL_ALERTA : PAL_OK);
+        if (chronoShowTimer) {
+            // Botones para cargar el tiempo.
+            const char* labels[3] = { "+1 min", "+5 min", "+10 min" };
+            for (int i = 0; i < 3; i++) {
+                int x = 30 + i * 120;
+                gfx->fillRoundRect(x, 225, 110, 45, 10, PAL_LILA);
+                gfx->setTextColor(PAL_TEXTO);
+                gfx->setCursor(x + (110 - strlen(labels[i]) * 12) / 2, 240);
+                gfx->print(labels[i]);
+            }
+        }
+
+        bool running = chronoShowTimer ? AlarmManager::isTimerRunning() : AlarmManager::isChronoRunning();
+        gfx->fillRoundRect(45, 290, 130, 50, 10, running ? PAL_ALERTA : PAL_OK);
         gfx->setTextColor(PAL_TEXTO);
         gfx->setTextSize(2);
-        gfx->setCursor(60, 305);
-        gfx->print(AlarmManager::isChronoRunning() ? "PAUSA" : "INICIAR");
+        const char* action = running ? "PAUSA" : "INICIAR";
+        gfx->setCursor(45 + (130 - strlen(action) * 12) / 2, 305);
+        gfx->print(action);
 
         gfx->fillRoundRect(235, 290, 130, 50, 10, PAL_LILA);
-        gfx->setCursor(265, 305);
+        gfx->setCursor(235 + (130 - 5 * 12) / 2, 305);
         gfx->print("RESET");
     } else if (currentTab == TAB_ADD_ALARM) {
         gfx->setTextColor(PAL_TEXTO_CLARO);
@@ -769,12 +797,31 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
             }
         }
 
-        if (currentTab == TAB_CHRONO && ty >= 290 && ty <= 340) {
-            if (tx >= 45 && tx <= 175) AlarmManager::toggleChrono();
-            else if (tx >= 235 && tx <= 365) AlarmManager::resetChrono();
-            TouchDriver::waitForRelease();
-            drawDashboard();
-            return;
+        if (currentTab == TAB_CHRONO) {
+            bool handled = false;
+            if (ty >= 118 && ty <= 154) {                         // selector de modo
+                chronoShowTimer = (tx >= 205);
+                handled = true;
+            } else if (chronoShowTimer && ty >= 225 && ty <= 270) {   // +1 / +5 / +10 min
+                static const int MINUTES[3] = { 1, 5, 10 };
+                for (int i = 0; i < 3; i++) {
+                    int x = 30 + i * 120;
+                    if (tx >= x && tx <= x + 110) { AlarmManager::timerAdd(MINUTES[i]); handled = true; }
+                }
+            } else if (ty >= 290 && ty <= 340) {                  // INICIAR/PAUSA y RESET
+                if (tx >= 45 && tx <= 175) {
+                    if (chronoShowTimer) AlarmManager::toggleTimer(); else AlarmManager::toggleChrono();
+                    handled = true;
+                } else if (tx >= 235 && tx <= 365) {
+                    if (chronoShowTimer) AlarmManager::resetTimer(); else AlarmManager::resetChrono();
+                    handled = true;
+                }
+            }
+            if (handled) {
+                TouchDriver::waitForRelease();
+                drawDashboard();
+                return;
+            }
         }
 
         if (currentTab == TAB_ADD_ALARM) {

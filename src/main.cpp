@@ -96,7 +96,7 @@ void loop() {
         DisplayUI::drawHeaderClockOnly();
         DisplayUI::refreshBottomBar();
         DisplayUI::refreshMusicTab();
-        if (AlarmManager::isChronoRunning()) {
+        if (AlarmManager::isChronoRunning() || AlarmManager::isTimerRunning()) {
             DisplayUI::refreshChronoDigits();   // solo los dígitos, y solo en la pestaña CRONO
         }
     }
