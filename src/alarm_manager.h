@@ -11,7 +11,8 @@ public:
     static void checkAlarms();
     static void addAlarm(int h, int m);
     static void deleteAlarm(int index);
-    
+    static void toggleAlarm(int index);   // activa/desactiva sin borrarla
+
     // Cronómetro
     static void toggleChrono();
     static void resetChrono();
@@ -22,6 +23,7 @@ public:
     static int alarmCount;
 
 private:
+    static void save();
     static bool chronoRunning;
     static unsigned long chronoStartTime;
     static unsigned long chronoElapsedTime;

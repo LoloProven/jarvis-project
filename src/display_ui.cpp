@@ -373,7 +373,7 @@ void DisplayUI::triggerAlarmRinging(int alarmIdx) {
     }
 
     AudioManager::stopTone();
-    AlarmManager::alarmList[alarmIdx].active = false;
+    // La alarma sigue activa: vuelve a sonar mañana a la misma hora.
     // Vuelve a la pantalla que había (antes iba siempre al dashboard, aunque no
     // hubiera un perfil abierto).
     currentScreen = previousScreen;
@@ -427,6 +427,13 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
                 if (tx >= 310 && tx <= 355 && ty >= yPos && ty <= yPos + 40) {
                     TouchDriver::waitForRelease();
                     AlarmManager::deleteAlarm(i);
+                    drawDashboard();
+                    return;
+                }
+                // Tocar la hora (o el texto ACTIVA/INACTIVA) la activa o desactiva.
+                if (tx >= 30 && tx <= 300 && ty >= yPos && ty <= yPos + 40) {
+                    TouchDriver::waitForRelease();
+                    AlarmManager::toggleAlarm(i);
                     drawDashboard();
                     return;
                 }
