@@ -9,6 +9,7 @@
 #include "net_status.h"
 #include "step_counter.h"
 #include "media_remote.h"
+#include "settings.h"
 
 static const int TAB_W = 88;   // 4 pestañas de 88 px
 #include <WiFi.h>
@@ -78,6 +79,7 @@ static void drawTab(Arduino_GFX* g, int x, int w, int textX, const char* label, 
 
 void DisplayUI::init() {
     gfx->begin();
+    Settings::applyBrightness();   // brillo guardado (Settings::load() ya se llamó)
 }
 
 Arduino_GFX* DisplayUI::getGFX() { return gfx; }
@@ -96,6 +98,7 @@ void DisplayUI::refreshCurrentScreen() {
     if (currentScreen == SCREEN_PROFILES) drawProfileMenu();
     else if (currentScreen == SCREEN_DASHBOARD) drawDashboard();
     else if (currentScreen == SCREEN_WIFI_CONFIG) drawWifiPortalScreen();
+    else if (currentScreen == SCREEN_SETTINGS) drawSettingsScreen();
 }
 
 void DisplayUI::drawAvatar(int x, int y, uint16_t color, const char* name) {
@@ -117,11 +120,64 @@ void DisplayUI::drawProfileMenu() {
     }
     gfx->fillRoundRect(50, 400, 310, 60, 12, PAL_ACENTO);
     gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(2);
-    gfx->setCursor(95, 420);
-    gfx->print("CONFIGURAR WIFI");
+    gfx->setTextSize(3);
+    gfx->setCursor(50 + (310 - 7 * 18) / 2, 418);
+    gfx->print("AJUSTES");
 
     drawBattery(gfx, 182, 6);   // arriba al centro, lejos de las esquinas redondeadas
+}
+
+// --- PANTALLA AJUSTES ---
+// Cada ajuste: título y una fila [ - ]  valor  [ + ] con botones grandes.
+static const int SET_MINUS_X = 50, SET_PLUS_X = 270, SET_BTN_W = 90, SET_BTN_H = 60;
+static const int SET_BRIGHT_Y = 95, SET_VOLUME_Y = 215;      // fila de botones de cada ajuste
+static const int SET_WIFI_Y = 320, SET_BACK_Y = 395;          // botones de abajo (alto 55)
+
+static void drawSettingRow(Arduino_GFX* g, const char* title, int y, const char* value) {
+    g->setTextColor(PAL_LILA);
+    g->setTextSize(2);
+    g->setCursor((LCD_WIDTH - strlen(title) * 12) / 2, y - 30);
+    g->print(title);
+    g->fillRoundRect(SET_MINUS_X, y, SET_BTN_W, SET_BTN_H, 12, PAL_ACENTO);
+    g->fillRoundRect(SET_PLUS_X, y, SET_BTN_W, SET_BTN_H, 12, PAL_ACENTO);
+    g->setTextColor(PAL_TEXTO);
+    g->setTextSize(4);
+    g->setCursor(SET_MINUS_X + (SET_BTN_W - 24) / 2, y + 15); g->print("-");
+    g->setCursor(SET_PLUS_X + (SET_BTN_W - 24) / 2, y + 15); g->print("+");
+    // Valor en el medio (se borra antes porque cambia de largo).
+    g->fillRect(SET_MINUS_X + SET_BTN_W + 5, y, SET_PLUS_X - SET_MINUS_X - SET_BTN_W - 10, SET_BTN_H, PAL_FONDO);
+    g->setTextColor(PAL_TEXTO_CLARO);
+    g->setTextSize(3);
+    g->setCursor((LCD_WIDTH - strlen(value) * 18) / 2, y + 18);
+    g->print(value);
+}
+
+static void drawSettingValues(Arduino_GFX* g) {
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%d%%", Settings::brightness() * 100 / Settings::BRIGHTNESS_LEVELS);
+    drawSettingRow(g, "Brillo", SET_BRIGHT_Y, buf);
+    snprintf(buf, sizeof(buf), "%d/10", Settings::alarmVolume());
+    drawSettingRow(g, "Volumen de la alarma", SET_VOLUME_Y, buf);
+}
+
+void DisplayUI::drawSettingsScreen() {
+    if (PowerManager::isScreenOff()) return;
+    gfx->fillScreen(PAL_FONDO);
+    gfx->setTextColor(PAL_CELESTE);
+    gfx->setTextSize(3);
+    gfx->setCursor((LCD_WIDTH - 7 * 18) / 2, 22);
+    gfx->print("AJUSTES");
+    drawSettingValues(gfx);
+
+    gfx->fillRoundRect(60, SET_WIFI_Y, 290, 55, 12, PAL_LILA);
+    gfx->setTextColor(PAL_TEXTO);
+    gfx->setTextSize(2);
+    gfx->setCursor((LCD_WIDTH - 15 * 12) / 2, SET_WIFI_Y + 20);
+    gfx->print("CONFIGURAR WIFI");
+
+    gfx->fillRoundRect(100, SET_BACK_Y, 210, 55, 12, PAL_ALERTA);
+    gfx->setCursor((LCD_WIDTH - 6 * 12) / 2, SET_BACK_Y + 20);
+    gfx->print("VOLVER");
 }
 
 // La hora se llama cada segundo pero solo cambia una vez por minuto: se redibuja
@@ -423,18 +479,8 @@ void DisplayUI::drawDashboard() {
         gfx->setCursor(40, 155);
         gfx->printf("%02d:%02d", tempHour, tempMinute);
 
-        gfx->setTextSize(2);
-        gfx->setTextColor(PAL_AMARILLO);
-        gfx->setCursor(230, 130);
-        gfx->printf("Vol: %d/10", AudioManager::masterVolume);
-
-        gfx->fillRoundRect(230, 155, 60, 40, 6, PAL_LILA);
-        gfx->fillRoundRect(300, 155, 60, 40, 6, PAL_LILA);
+        // (El volumen de la alarma pasó a la pantalla AJUSTES.)
         gfx->setTextColor(PAL_TEXTO);
-        gfx->setTextSize(3);
-        gfx->setCursor(252, 162); gfx->print("-");
-        gfx->setCursor(322, 162); gfx->print("+");
-
         gfx->fillRoundRect(40, 225, 85, 45, 8, PAL_ACENTO);
         gfx->fillRoundRect(140, 225, 85, 45, 8, PAL_ACENTO);
         gfx->setTextSize(3);
@@ -632,6 +678,24 @@ void DisplayUI::triggerAlarmRinging(int alarmIdx) {
 }
 
 void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
+    if (currentScreen == SCREEN_SETTINGS) {
+        auto inBtn = [&](int x, int y, int w, int h) { return tx >= x && tx <= x + w && ty >= y && ty <= y + h; };
+        if (inBtn(SET_MINUS_X, SET_BRIGHT_Y, SET_BTN_W, SET_BTN_H)) Settings::setBrightness(Settings::brightness() - 1);
+        else if (inBtn(SET_PLUS_X, SET_BRIGHT_Y, SET_BTN_W, SET_BTN_H)) Settings::setBrightness(Settings::brightness() + 1);
+        else if (inBtn(SET_MINUS_X, SET_VOLUME_Y, SET_BTN_W, SET_BTN_H)) Settings::setAlarmVolume(Settings::alarmVolume() - 1);
+        else if (inBtn(SET_PLUS_X, SET_VOLUME_Y, SET_BTN_W, SET_BTN_H)) Settings::setAlarmVolume(Settings::alarmVolume() + 1);
+        else if (inBtn(60, SET_WIFI_Y, 290, 55)) { TouchDriver::waitForRelease(); WiFiPortal::startPortal(); return; }
+        else if (inBtn(100, SET_BACK_Y, 210, 55)) {
+            TouchDriver::waitForRelease();
+            currentScreen = SCREEN_PROFILES;
+            drawProfileMenu();
+            return;
+        } else return;
+        drawSettingValues(gfx);                  // solo cambian los números
+        TouchDriver::waitForRelease();
+        return;
+    }
+
     if (currentScreen == SCREEN_WIFI_CONFIG) {
         if (tx >= 50 && tx <= 350 && ty >= 340 && ty <= 410) {
             TouchDriver::waitForRelease();
@@ -653,7 +717,8 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
         }
         if (tx >= 50 && tx <= 360 && ty >= 400 && ty <= 460) {
             TouchDriver::waitForRelease();
-            WiFiPortal::startPortal();
+            currentScreen = SCREEN_SETTINGS;
+            drawSettingsScreen();
             return;
         }
     } else if (currentScreen == SCREEN_DASHBOARD) {
@@ -696,13 +761,6 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
         }
 
         if (currentTab == TAB_ADD_ALARM) {
-            if (ty >= 155 && ty <= 195) {
-                if (tx >= 230 && tx <= 290 && AudioManager::masterVolume > 0) AudioManager::masterVolume--;
-                if (tx >= 300 && tx <= 360 && AudioManager::masterVolume < 10) AudioManager::masterVolume++;
-                drawDashboard();
-                TouchDriver::waitForRelease();
-                return;
-            }
             // GUARDAR va primero: ocupa la misma franja vertical que las filas de +/−,
             // y si esas se revisaban antes se quedaban con el toque.
             if (tx >= 235 && tx <= 385 && ty >= 220 && ty <= 330) {

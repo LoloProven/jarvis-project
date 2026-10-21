@@ -84,7 +84,8 @@ enum ScreenState {
     SCREEN_PROFILES,
     SCREEN_DASHBOARD,
     SCREEN_WIFI_CONFIG,
-    SCREEN_ALARM_RINGING
+    SCREEN_ALARM_RINGING,
+    SCREEN_SETTINGS        // AJUSTES: brillo, volumen de la alarma y WiFi
 };
 
 // --- TABS DEL DASHBOARD ---

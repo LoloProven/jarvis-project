@@ -6,6 +6,7 @@
 #include "wifi_portal.h"
 #include "touch_driver.h"
 #include "media_remote.h"
+#include "settings.h"
 #include <esp_sleep.h>
 #include <driver/gpio.h>
 
@@ -61,6 +62,7 @@ void PowerManager::turnScreenOn(bool redraw) {
     NetStatus::setPaused(false);
     WiFiPortal::resume();
     DisplayUI::getGFX()->displayOn();
+    Settings::applyBrightness();             // el panel puede volver con el brillo de fábrica
     if (redraw) DisplayUI::refreshCurrentScreen();   // con la hora y el cronómetro al día
 }
 

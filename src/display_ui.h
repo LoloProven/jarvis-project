@@ -18,6 +18,7 @@ public:
     static void musicTick();                          // vuelve el color del botón que titiló
     static void drawWifiPortalScreen();
     static void showSleepMessage();      // aviso antes de entrar en modo dormir
+    static void drawSettingsScreen();    // AJUSTES: brillo, volumen y WiFi
     static void triggerAlarmRinging(int alarmIdx);
     static void handleTouch(int16_t x, int16_t y);
 

@@ -9,6 +9,7 @@
 #include "net_status.h"
 #include "step_counter.h"
 #include "media_remote.h"
+#include "settings.h"
 
 static unsigned long lastClockUpdate = 0;
 static NetState lastNetState = NET_NO_WIFI;
@@ -21,6 +22,7 @@ void setup() {
 
     PowerManager::init();          // inicia Wire (I2C compartido por PMU, touch y audio)
     TouchDriver::init();
+    Settings::load();              // brillo y volumen guardados (antes de la pantalla)
     DisplayUI::init();
     AlarmManager::init();
     AudioManager::init();
