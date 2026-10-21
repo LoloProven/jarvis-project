@@ -437,9 +437,13 @@ static void drawBarField(Arduino_GFX* g, BarField f, int x, int y, int widthChar
     g->printf("%-*s", widthChars, text);
 }
 
-static void updateBarFields(Arduino_GFX* g, bool force) {
+// Pasos, km y velocidad solo se muestran en la pestaña CRONO; en las demás la barra
+// tiene solo la batería y el botón Salir.
+static void updateBarFields(Arduino_GFX* g, bool force, bool showSteps) {
     char buf[16];
-    if (StepCounter::available()) {
+    if (!showSteps) {
+        // (el dashboard se acaba de pintar de negro, no hay nada que borrar)
+    } else if (StepCounter::available()) {
         snprintf(buf, sizeof(buf), "%lu pasos", (unsigned long)StepCounter::steps());
         drawBarField(g, BF_STEPS, STEPS_X, BAR_Y + 2, 11, buf, PAL_MENTA, force);
         snprintf(buf, sizeof(buf), "%.2f km", StepCounter::distanceKm());
@@ -459,7 +463,7 @@ static void updateBarFields(Arduino_GFX* g, bool force) {
 
 // Dibujo completo (al armar el dashboard, que ya pintó el fondo de negro).
 void DisplayUI::drawBottomBar() {
-    updateBarFields(gfx, true);
+    updateBarFields(gfx, true, currentTab == TAB_CHRONO);
 
     gfx->fillRoundRect(SALIR_X, BAR_Y, SALIR_W, 45, 12, PAL_ALERTA);
     gfx->setTextColor(PAL_TEXTO);
@@ -471,7 +475,7 @@ void DisplayUI::drawBottomBar() {
 // Actualización periódica: solo los datos que cambiaron, sin tocar el botón.
 void DisplayUI::refreshBottomBar() {
     if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
-    updateBarFields(gfx, false);
+    updateBarFields(gfx, false, currentTab == TAB_CHRONO);
 }
 
 void DisplayUI::showSleepMessage() {
