@@ -34,12 +34,13 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 #define TOUCH_I2C_ADDR 0x38
 
 // Tiempo sin tocar la pantalla hasta que se apaga sola.
-#define SCREEN_TIMEOUT_MS  30000UL
+#define SCREEN_TIMEOUT_MS  15000UL
 
 // Con la pantalla apagada: al minuto se apaga el WiFi (se reconecta al prenderla).
 #define WIFI_OFF_AFTER_MS  60000UL
-// ...y a los 30 minutos entra en modo dormir (gasta muy poco; las alarmas suenan igual).
-#define SLEEP_AFTER_MS     1800000UL
+// ...y a los 10 minutos entra en modo dormir (gasta muy poco; las alarmas suenan igual y los
+// pasos se siguen contando). No entra si estás caminando o corre el cronómetro/temporizador.
+#define SLEEP_AFTER_MS     600000UL
 
 // Largo de paso de respaldo (cm), solo para el primer paso de una racha. La distancia usa
 // el largo según el ritmo (step_counter.cpp, STRIDE_CM_PER_SPM).
