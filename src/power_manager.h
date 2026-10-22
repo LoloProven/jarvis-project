@@ -6,7 +6,7 @@
 
 // Botón PWR:
 //  - toque corto: apaga/prende la pantalla. El reloj sigue andando (hora, pasos, alarmas)
-//    pero gastando menos: 80 MHz, sin revisar internet y sin WiFi a los 5 minutos.
+//    pero gastando menos: 80 MHz, sin revisar internet y sin WiFi al minuto.
 //  - 1,5 s: modo dormir (sueño liviano). Gasta muy poco; la hora y las alarmas siguen,
 //    los pasos no. Se despierta con PWR, BOOT, tocando la pantalla o con una alarma.
 //    También entra solo tras SLEEP_AFTER_MS con la pantalla apagada.

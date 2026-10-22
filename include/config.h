@@ -36,8 +36,8 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 // Tiempo sin tocar la pantalla hasta que se apaga sola.
 #define SCREEN_TIMEOUT_MS  30000UL
 
-// Con la pantalla apagada: a los 5 minutos se apaga el WiFi (se reconecta al prenderla).
-#define WIFI_OFF_AFTER_MS  300000UL
+// Con la pantalla apagada: al minuto se apaga el WiFi (se reconecta al prenderla).
+#define WIFI_OFF_AFTER_MS  60000UL
 // ...y a los 30 minutos entra en modo dormir (gasta muy poco; las alarmas suenan igual).
 #define SLEEP_AFTER_MS     1800000UL
 
