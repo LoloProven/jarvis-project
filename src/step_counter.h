@@ -10,10 +10,20 @@ public:
     static void init();             // después de Wire.begin()
     static void loop();             // lee el sensor cada 2 s
     static uint32_t steps();        // pasos de hoy
-    static float distanceKm();      // pasos * STEP_LENGTH_CM
+    static float distanceKm();      // suma del largo de cada paso (según el ritmo)
     static float speedKmh();        // estimada con el ritmo de los últimos 10 s (0 si estás quieto)
     static bool available();        // false si no se encontró el sensor
     static bool takeWristRaise();   // true una vez por cada vez que se levanta la muñeca
+    static void pollWhileSleeping();  // en modo dormir: procesar lo que juntó el sensor
+    static bool walkedWithin(unsigned long ms);   // hubo pasos en los últimos ms
+
+    // Sesión (para salir a correr): cuenta solo mientras corre el cronómetro.
+    // INICIAR = sessionStart, PAUSA = sessionPause, RESET = sessionReset.
+    static void sessionStart();
+    static void sessionPause();
+    static void sessionReset();
+    static uint32_t sessionSteps();
+    static float sessionKm();
 };
 
 #endif
