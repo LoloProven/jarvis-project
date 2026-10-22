@@ -26,14 +26,21 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
   con Strava (8056 pasos, 7,67 km, 63 min). La barra de abajo muestra pasos/km del día (vuelven a 0
   a la medianoche); en CRONO hay una "Sesion" atada al cronómetro (INICIAR/PAUSA/RESET).
 - No entra solo en modo dormir si hubo pasos en los últimos 3 min o corre el crono/temporizador.
-- Energía: PWR corto = pantalla; PWR 1,5 s o 30 min apagada = modo dormir (sueño liviano, apaga
-  WiFi y Bluetooth, las alarmas suenan); PWR 4 s = apagado total por hardware.
+- Energía: PWR corto = pantalla; PWR 1,5 s o 10 min apagada = modo dormir (sueño liviano, apaga
+  WiFi y Bluetooth, las alarmas suenan); PWR 4 s = apagado total por hardware. La pantalla se
+  apaga a los 15 s sin tocarla; el WiFi, al minuto de apagarla. Sin red conocida, el WiFi
+  reintenta con espera creciente (15 s, 30 s... hasta 5 min) en vez de buscar cada 15 s.
+- AJUSTES > BATERIA (src/battery_log.cpp): cada 15 min anota hora, %, minutos con pantalla
+  prendida/apagada/dormido/WiFi y si cargó (guardado en NVS, 12 h). Arriba calcula el % por hora
+  de cada estado con los tramos que fueron 80 % de un solo estado. Sirve para medir antes de
+  seguir recortando.
 - Audio por el códec ES8311 (alarma). La grabación de voz (AudioManager::recordAndSend) existe pero
   no se probó con n8n.
-- Pendiente: BATERÍA (el usuario dice que se descarga demasiado rápido; llegó a 0 % en una salida
-  de 1 h). Plan: medir el % por hora en cada estado (pantalla prendida, apagada, modo dormir) y
-  recortar: Bluetooth solo cuando se usa MÚSICA, dormir antes cuando no caminás, pantalla 15 s,
-  brillo por defecto más bajo, WiFi solo cuando hace falta. También: verificar los pasos con otra
+- Pendiente: BATERÍA (llegó a 0 % en una salida de 1 h). Hecho (rama bateria): registro BATERIA,
+  WiFi con espera creciente y apagado al minuto, pantalla 15 s, dormir a los 10 min. Falta: leer
+  el registro tras un día de uso y, según dónde gaste, seguir: Bluetooth solo cuando se usa
+  MÚSICA (ojo: ANCS lo necesitaría prendido), brillo más bajo (el valor guardado en NVS manda
+  sobre el de fábrica), CPU más baja con pantalla prendida. También: verificar los pasos con otra
   salida de Strava (caminando, usando la "Sesion" del CRONO); agente de IA.
 - Pendiente: NOTIFICACIONES del iPhone (WhatsApp, mensajes, llamadas) con ANCS. Diseño pensado:
   - Mismo esquema que AMS en media_remote.cpp: tras la vinculación cifrada, una tarea busca el
