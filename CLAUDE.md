@@ -19,12 +19,22 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
 - Levantar la muñeca con la pantalla apagada (no en modo dormir): hora grande en blanco 5 s
   ("vistazo": solo el panel, sin WiFi ni CPU a 240 MHz). Detección en la tarea de pasos.
 - Hora argentina por NTP, guardada en el RTC. WiFi múltiple: casa, portal y hotspot del iPhone.
-- Pasos por software con el acelerómetro (el podómetro del chip no cuenta).
+- Pasos por software con el acelerómetro (el podómetro del chip no cuenta). El acelerómetro guarda
+  las mediciones en su FIFO (128 a 62,5 Hz) y se leen de a tandas: cada 200 ms despierto y en cada
+  despertar del modo dormir (1 s), así se cuentan pasos también durmiendo.
+- Distancia: cada paso suma un largo según el ritmo (0,74 cm por paso/min, 55-140 cm), calibrado
+  con Strava (8056 pasos, 7,67 km, 63 min). La barra de abajo muestra pasos/km del día (vuelven a 0
+  a la medianoche); en CRONO hay una "Sesion" atada al cronómetro (INICIAR/PAUSA/RESET).
+- No entra solo en modo dormir si hubo pasos en los últimos 3 min o corre el crono/temporizador.
 - Energía: PWR corto = pantalla; PWR 1,5 s o 30 min apagada = modo dormir (sueño liviano, apaga
   WiFi y Bluetooth, las alarmas suenan); PWR 4 s = apagado total por hardware.
 - Audio por el códec ES8311 (alarma). La grabación de voz (AudioManager::recordAndSend) existe pero
   no se probó con n8n.
-- Pendiente: medir batería de una noche en modo dormir; afinar pasos/velocidad; agente de IA.
+- Pendiente: BATERÍA (el usuario dice que se descarga demasiado rápido; llegó a 0 % en una salida
+  de 1 h). Plan: medir el % por hora en cada estado (pantalla prendida, apagada, modo dormir) y
+  recortar: Bluetooth solo cuando se usa MÚSICA, dormir antes cuando no caminás, pantalla 15 s,
+  brillo por defecto más bajo, WiFi solo cuando hace falta. También: verificar los pasos con otra
+  salida de Strava; notificaciones del iPhone (ANCS); agente de IA.
   Idea acordada para el agente: unir AGENDA y +ALARMA en "ALARMAS" y usar la pestaña libre para
   "JARVIS" (hablar, respuesta, próximos eventos de Calendar); mantener BOOT = hablar desde cualquier
   pantalla. El reloj graba y muestra; la IA y el acceso a Calendar van en n8n.
