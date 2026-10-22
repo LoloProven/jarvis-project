@@ -7,9 +7,7 @@ class AudioManager {
 public:
     static void init();
     static void playTone(int volume);
-    static void stopTone();
-    static void beep(int times = 1);     // pitido corto (notificaciones), al volumen de la alarma
-    static void recordAndSend();
+    static void stopTone();    static void recordAndSend();
     static int masterVolume;
 
 private:

@@ -42,14 +42,18 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
   MÚSICA (ojo: ANCS lo necesitaría prendido), brillo más bajo (el valor guardado en NVS manda
   sobre el de fábrica), CPU más baja con pantalla prendida. También: verificar los pasos con otra
   salida de Strava (caminando, usando la "Sesion" del CRONO); agente de IA.
-- NOTIFICACIONES del iPhone por ANCS (rama notificaciones, sale de bateria; subido al reloj, FALTA
-  PROBAR con el iPhone): src/notifications.cpp. Tras AMS, en la misma tarea (media_remote.cpp
+- NOTIFICACIONES del iPhone por ANCS (rama notificaciones, sale de bateria; probado con el iPhone,
+  funciona; PR junto con bateria cuando se pruebe la batería): src/notifications.cpp. Tras AMS, en la misma tarea (media_remote.cpp
   amsSetupTask) se suscribe a Data Source y Notification Source; una tarea "ancs" pide app, título
   y mensaje por Control Point de a una notificación y arma la respuesta (llega en pedazos). Se
   ignoran las que ya estaban (bandera PreExisting). main.cpp: prende la pantalla, aviso a pantalla
-  completa (DisplayUI::drawNotification, color por app) y pitido (AudioManager::beep); se cierra
-  tocando o a los 8 s. Llamada (categoría 1): 3 pitidos, botón RECHAZAR (acción negativa), se
+  completa (DisplayUI::drawNotification, color por app), SIN sonido (el usuario lo prefiere así);
+  se cierra tocando o a los 8 s. Llamada (categoría 1): botón RECHAZAR (acción negativa), se
   cierra sola cuando deja de sonar. detach() no toma el mutex (se llama desde la tarea BLE).
+  - Decidido: no filtrar por No molestar (casi no ahorra batería); para ahorrar, el modo dormir.
+  - Responder con audio: el iPhone no lo permite por ANCS. Solo por n8n, y WhatsApp oficial manda
+    desde otro número (Business API); desde el número propio = librerías no oficiales, riesgo de
+    bloqueo. Descartado salvo como parte del agente JARVIS.
   - Permiso: Ajustes > Bluetooth > JARVIS Reloj (i) > "Compartir notificaciones del sistema".
     Si no aparece, olvidar el dispositivo y volver a vincular. Log por USB: "[ancs] ...".
   - En modo dormir el Bluetooth está apagado: no llegan (y las viejas no se muestran al despertar).

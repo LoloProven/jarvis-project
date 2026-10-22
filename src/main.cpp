@@ -78,13 +78,13 @@ void loop() {
     int16_t tx, ty;
     bool touched = TouchDriver::getTouch(tx, ty);
 
-    // Notificación del iPhone: prende la pantalla, la muestra y pita. Se cierra tocando,
-    // a los NOTICE_MS o, si es una llamada, cuando deja de sonar en el iPhone.
+    // Notificación del iPhone: prende la pantalla y la muestra, sin sonido (así lo prefiere
+    // el usuario). Se cierra tocando, a los NOTICE_MS o, si es una llamada, cuando deja de
+    // sonar en el iPhone.
     Notifications::Notice notice;
     if (Notifications::take(notice) && DisplayUI::getCurrentScreen() != SCREEN_WIFI_CONFIG) {
         PowerManager::turnScreenOn(false);
         DisplayUI::drawNotification(notice.app, notice.title, notice.message, notice.call);
-        AudioManager::beep(notice.call ? 3 : 1);
         noticeShown = true;
         noticeCall = notice.call;
         noticeUntil = millis() + (notice.call ? CALL_MS : NOTICE_MS);

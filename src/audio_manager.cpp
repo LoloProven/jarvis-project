@@ -83,16 +83,6 @@ void AudioManager::stopTone() {
     digitalWrite(AUDIO_PA_EN, LOW);
 }
 
-// Cada playTone() son 16 ms de sonido: 8 seguidos = un pitido de ~130 ms.
-void AudioManager::beep(int times) {
-    if (!audioReady || masterVolume == 0) return;
-    for (int t = 0; t < times; t++) {
-        if (t > 0) { stopTone(); delay(120); }
-        for (int i = 0; i < 8; i++) playTone(masterVolume);
-    }
-    stopTone();
-}
-
 void AudioManager::recordAndSend() {
     if (!audioReady || WiFi.status() != WL_CONNECTED) return;
     if (audioBuffer == NULL) {
