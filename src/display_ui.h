@@ -21,6 +21,9 @@ public:
     static void drawSettingsScreen();    // AJUSTES: brillo, volumen y WiFi
     static void drawBatteryScreen();     // registro de la batería (desde AJUSTES)
     static void drawBigClock();          // hora grande en blanco sobre negro (levantar la muñeca)
+    // Notificación del iPhone a pantalla completa; con llamada, botón RECHAZAR abajo.
+    static void drawNotification(const char* app, const char* title, const char* message, bool call);
+    static bool hitRejectButton(int16_t x, int16_t y);
     static void triggerAlarmRinging(int alarmIdx);
     // Pantalla que suena (alarma/temporizador); devuelve true si se eligió POSPONER.
     static bool ringScreen(const char* title, const char* timeText, bool allowSnooze);

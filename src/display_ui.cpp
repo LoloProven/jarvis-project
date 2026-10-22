@@ -740,6 +740,76 @@ void DisplayUI::drawBigClock() {
     gfx->print(buf);
 }
 
+// Escribe el texto en renglones de hasta maxChars, cortando en los espacios. Si no entra
+// en maxLines, el último renglón termina en "..". Devuelve la y siguiente.
+static int printWrapped(Arduino_GFX* g, const char* text, int x, int y, int maxChars, int maxLines, int lineH) {
+    int len = strlen(text), pos = 0;
+    for (int line = 0; line < maxLines && pos < len; line++) {
+        while (pos < len && text[pos] == ' ') pos++;
+        int n = min(maxChars, len - pos);
+        if (pos + n < len) {                          // no entra todo: cortar en un espacio
+            int cut = n;
+            while (cut > 0 && text[pos + cut] != ' ') cut--;
+            if (cut > maxChars / 2) n = cut;
+        }
+        char buf[40];
+        memcpy(buf, text + pos, n);
+        buf[n] = 0;
+        if (line == maxLines - 1 && pos + n < len && n >= 2) buf[n - 2] = buf[n - 1] = '.';
+        g->setCursor(x, y);
+        g->print(buf);
+        y += lineH;
+        pos += n;
+    }
+    return y;
+}
+
+static const int NOTIF_BTN_Y = 375, NOTIF_BTN_H = 70;
+
+void DisplayUI::drawNotification(const char* app, const char* title, const char* message, bool call) {
+    uint16_t color = PAL_LILA;
+    if (call) color = PAL_ALERTA;
+    else if (strcmp(app, "WhatsApp") == 0) color = PAL_MENTA;
+    else if (strcmp(app, "Mensajes") == 0) color = PAL_CELESTE;
+
+    gfx->fillScreen(PAL_FONDO);
+    // Etiqueta con la app (o "LLAMADA") en el color de la app.
+    const char* label = call ? "LLAMADA" : app;
+    int labelW = strlen(label) * 18 + 30;
+    gfx->fillRoundRect((LCD_WIDTH - labelW) / 2, 30, labelW, 40, 12, color);
+    gfx->setTextColor(PAL_TEXTO);
+    gfx->setTextSize(3);
+    gfx->setCursor((LCD_WIDTH - strlen(label) * 18) / 2, 39);
+    gfx->print(label);
+
+    // Quién: tamaño 3, hasta 2 renglones de 18 letras.
+    gfx->setTextColor(0xFFFF);
+    int y = printWrapped(gfx, title, 40, 95, 18, 2, 30);
+    if (call) {
+        gfx->fillRoundRect(60, NOTIF_BTN_Y, LCD_WIDTH - 120, NOTIF_BTN_H, 20, PAL_ALERTA);
+        gfx->setTextColor(PAL_TEXTO);
+        gfx->setTextSize(3);
+        gfx->setCursor((LCD_WIDTH - 8 * 18) / 2, NOTIF_BTN_Y + 24);
+        gfx->print("RECHAZAR");
+        gfx->setTextColor(PAL_LILA);
+        gfx->setTextSize(2);
+        gfx->setCursor((LCD_WIDTH - 22 * 12) / 2, NOTIF_BTN_Y - 40);
+        gfx->print("Toca arriba para cerrar");
+        return;
+    }
+    // Mensaje: tamaño 2, renglones de 27 letras hasta la leyenda de abajo.
+    gfx->setTextColor(PAL_TEXTO_CLARO);
+    gfx->setTextSize(2);
+    printWrapped(gfx, message, 40, y + 15, 27, (400 - (y + 15)) / 24, 24);
+    gfx->setTextColor(PAL_LILA);
+    gfx->setCursor((LCD_WIDTH - 16 * 12) / 2, 425);
+    gfx->print("Toca para cerrar");
+}
+
+bool DisplayUI::hitRejectButton(int16_t x, int16_t y) {
+    return x >= 60 && x <= LCD_WIDTH - 60 && y >= NOTIF_BTN_Y && y <= NOTIF_BTN_Y + NOTIF_BTN_H;
+}
+
 void DisplayUI::showSleepMessage() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);

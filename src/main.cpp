@@ -11,6 +11,7 @@
 #include "media_remote.h"
 #include "settings.h"
 #include "battery_log.h"
+#include "notifications.h"
 
 static unsigned long lastClockUpdate = 0;
 static NetState lastNetState = NET_NO_WIFI;
@@ -20,6 +21,12 @@ static bool ignoreUntilRelease = false;
 // Hora grande al levantar la muñeca: cuánto se muestra antes de apagarse sola.
 static const unsigned long GLANCE_MS = 5000;
 static unsigned long glanceUntil = 0;
+// Notificación en pantalla.
+static const unsigned long NOTICE_MS = 8000;
+static const unsigned long CALL_MS = 30000;
+static bool noticeShown = false;
+static bool noticeCall = false;
+static unsigned long noticeUntil = 0;
 
 void setup() {
     Serial.begin(115200);
@@ -70,6 +77,38 @@ void loop() {
 
     int16_t tx, ty;
     bool touched = TouchDriver::getTouch(tx, ty);
+
+    // Notificación del iPhone: prende la pantalla, la muestra y pita. Se cierra tocando,
+    // a los NOTICE_MS o, si es una llamada, cuando deja de sonar en el iPhone.
+    Notifications::Notice notice;
+    if (Notifications::take(notice) && DisplayUI::getCurrentScreen() != SCREEN_WIFI_CONFIG) {
+        PowerManager::turnScreenOn(false);
+        DisplayUI::drawNotification(notice.app, notice.title, notice.message, notice.call);
+        AudioManager::beep(notice.call ? 3 : 1);
+        noticeShown = true;
+        noticeCall = notice.call;
+        noticeUntil = millis() + (notice.call ? CALL_MS : NOTICE_MS);
+        ignoreUntilRelease = touched;
+    }
+    if (noticeShown) {
+        if (ignoreUntilRelease) {
+            if (!touched) ignoreUntilRelease = false;
+            touched = false;
+        }
+        bool close = (long)(millis() - noticeUntil) > 0 || (noticeCall && !Notifications::callActive());
+        if (touched) {
+            if (noticeCall && DisplayUI::hitRejectButton(tx, ty)) Notifications::rejectCall();
+            TouchDriver::waitForRelease();
+            close = true;
+        }
+        if (close) {
+            noticeShown = false;
+            PowerManager::notifyActivity();    // queda prendida el tiempo normal y se apaga sola
+            DisplayUI::refreshCurrentScreen();
+            lastNetState = NetStatus::get();
+        }
+        return;
+    }
 
     if (PowerManager::isScreenOff()) {
         if (touched) {
