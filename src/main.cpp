@@ -10,6 +10,7 @@
 #include "step_counter.h"
 #include "media_remote.h"
 #include "settings.h"
+#include "battery_log.h"
 
 static unsigned long lastClockUpdate = 0;
 static NetState lastNetState = NET_NO_WIFI;
@@ -26,6 +27,7 @@ void setup() {
     PowerManager::init();          // inicia Wire (I2C compartido por PMU, touch y audio)
     TouchDriver::init();
     Settings::load();              // brillo y volumen guardados (antes de la pantalla)
+    BatteryLog::init();
     DisplayUI::init();
     AlarmManager::init();
     AudioManager::init();
@@ -42,6 +44,8 @@ void setup() {
 }
 
 void loop() {
+    BatteryLog::tick();                       // cuánto tiempo en cada estado (y cada 15 min, el %)
+
     // Modo dormir: duerme de a 1 s y entre medio solo mira PWR y las alarmas.
     if (PowerManager::isSleeping()) {
         PowerManager::WakeReason why = PowerManager::sleepTick();

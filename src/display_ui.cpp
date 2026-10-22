@@ -10,6 +10,7 @@
 #include "step_counter.h"
 #include "media_remote.h"
 #include "settings.h"
+#include "battery_log.h"
 
 static const int TAB_W = 88;   // 4 pestañas de 88 px
 #include <WiFi.h>
@@ -99,6 +100,7 @@ void DisplayUI::refreshCurrentScreen() {
     else if (currentScreen == SCREEN_DASHBOARD) drawDashboard();
     else if (currentScreen == SCREEN_WIFI_CONFIG) drawWifiPortalScreen();
     else if (currentScreen == SCREEN_SETTINGS) drawSettingsScreen();
+    else if (currentScreen == SCREEN_BATTERY) drawBatteryScreen();
 }
 
 void DisplayUI::drawAvatar(int x, int y, uint16_t color, const char* name) {
@@ -169,14 +171,85 @@ void DisplayUI::drawSettingsScreen() {
     gfx->print("AJUSTES");
     drawSettingValues(gfx);
 
-    gfx->fillRoundRect(60, SET_WIFI_Y, 290, 55, 12, PAL_LILA);
     gfx->setTextColor(PAL_TEXTO);
     gfx->setTextSize(2);
-    gfx->setCursor((LCD_WIDTH - 15 * 12) / 2, SET_WIFI_Y + 20);
-    gfx->print("CONFIGURAR WIFI");
+    gfx->fillRoundRect(60, SET_WIFI_Y, 140, 55, 12, PAL_LILA);
+    gfx->setCursor(60 + (140 - 4 * 12) / 2, SET_WIFI_Y + 20);
+    gfx->print("WIFI");
+    gfx->fillRoundRect(210, SET_WIFI_Y, 140, 55, 12, PAL_MENTA);
+    gfx->setCursor(210 + (140 - 7 * 12) / 2, SET_WIFI_Y + 20);
+    gfx->print("BATERIA");
 
     gfx->fillRoundRect(100, SET_BACK_Y, 210, 55, 12, PAL_ALERTA);
     gfx->setCursor((LCD_WIDTH - 6 * 12) / 2, SET_BACK_Y + 20);
+    gfx->print("VOLVER");
+}
+
+// --- PANTALLA BATERIA ---
+// Gasto por hora en cada estado y los últimos tramos de 15 min del registro, el más
+// nuevo arriba. P/A/D/W = minutos con la pantalla prendida, apagada, en modo dormir y
+// con el WiFi prendido; C = estuvo cargando (no cuenta para el gasto).
+static const int BAT_BTN_Y = 400;
+static const int BAT_ROWS = 8;
+
+void DisplayUI::drawBatteryScreen() {
+    if (PowerManager::isScreenOff()) return;
+    gfx->fillScreen(PAL_FONDO);
+    gfx->setTextColor(PAL_MENTA);
+    gfx->setTextSize(3);
+    gfx->setCursor((LCD_WIDTH - 7 * 18) / 2, 22);
+    gfx->print("BATERIA");
+
+    gfx->setTextSize(2);
+    gfx->setTextColor(PAL_LILA);
+    gfx->setCursor(50, 60);
+    gfx->print("Gasto por hora:");
+    static const char* names[] = {"Prendida", "Apagada ", "Dormido "};
+    char buf[32];
+    for (int s = 0; s < 3; s++) {
+        float r = BatteryLog::ratePerHour(s);
+        if (r < 0) snprintf(buf, sizeof(buf), "%s  sin datos", names[s]);
+        else       snprintf(buf, sizeof(buf), "%s  %.1f %%/h", names[s], r);
+        gfx->setTextColor(PAL_TEXTO_CLARO);
+        gfx->setCursor(50, 85 + s * 22);
+        gfx->print(buf);
+    }
+
+    gfx->setTextColor(PAL_LILA);
+    gfx->setCursor(50, 160);
+    gfx->print("Hora     %  P  A  D  W");
+    gfx->setTextColor(PAL_TEXTO_CLARO);
+    int n = BatteryLog::count();
+    if (n == 0) {
+        gfx->setCursor(50, 185);
+        gfx->print("Cada 15 min se anota");
+        gfx->setCursor(50, 205);
+        gfx->print("una linea.");
+    }
+    for (int row = 0; row < BAT_ROWS && row < n; row++) {
+        const BatteryLog::Entry& e = BatteryLog::get(n - 1 - row);
+        time_t t = e.when;
+        struct tm tmv;
+        localtime_r(&t, &tmv);
+        snprintf(buf, sizeof(buf), "%02d:%02d %3d%% %2d %2d %2d %2d%s", tmv.tm_hour, tmv.tm_min, e.pct,
+                 e.onMin, e.offMin, e.sleepMin, e.wifiMin, e.charging ? " C" : "");
+        gfx->setCursor(50, 185 + row * 20);
+        gfx->print(buf);
+    }
+    gfx->setTextColor(PAL_LILA);
+    gfx->setCursor(50, 350);
+    gfx->print("P prendida  A apagada");
+    gfx->setCursor(50, 372);
+    gfx->print("D dormido  W WiFi (min)");
+
+    gfx->setTextColor(PAL_TEXTO);
+    gfx->fillRoundRect(60, BAT_BTN_Y, 140, 50, 12, PAL_TARJETA);
+    gfx->setTextColor(PAL_TEXTO_CLARO);
+    gfx->setCursor(60 + (140 - 6 * 12) / 2, BAT_BTN_Y + 17);
+    gfx->print("BORRAR");
+    gfx->fillRoundRect(210, BAT_BTN_Y, 140, 50, 12, PAL_ALERTA);
+    gfx->setTextColor(PAL_TEXTO);
+    gfx->setCursor(210 + (140 - 6 * 12) / 2, BAT_BTN_Y + 17);
     gfx->print("VOLVER");
 }
 
@@ -770,7 +843,13 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
         else if (inBtn(SET_PLUS_X, SET_BRIGHT_Y, SET_BTN_W, SET_BTN_H)) Settings::setBrightness(Settings::brightness() + 1);
         else if (inBtn(SET_MINUS_X, SET_VOLUME_Y, SET_BTN_W, SET_BTN_H)) Settings::setAlarmVolume(Settings::alarmVolume() - 1);
         else if (inBtn(SET_PLUS_X, SET_VOLUME_Y, SET_BTN_W, SET_BTN_H)) Settings::setAlarmVolume(Settings::alarmVolume() + 1);
-        else if (inBtn(60, SET_WIFI_Y, 290, 55)) { TouchDriver::waitForRelease(); WiFiPortal::startPortal(); return; }
+        else if (inBtn(60, SET_WIFI_Y, 140, 55)) { TouchDriver::waitForRelease(); WiFiPortal::startPortal(); return; }
+        else if (inBtn(210, SET_WIFI_Y, 140, 55)) {
+            TouchDriver::waitForRelease();
+            currentScreen = SCREEN_BATTERY;
+            drawBatteryScreen();
+            return;
+        }
         else if (inBtn(100, SET_BACK_Y, 210, 55)) {
             TouchDriver::waitForRelease();
             currentScreen = SCREEN_PROFILES;
@@ -779,6 +858,20 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
         } else return;
         drawSettingValues(gfx);                  // solo cambian los números
         TouchDriver::waitForRelease();
+        return;
+    }
+
+    if (currentScreen == SCREEN_BATTERY) {
+        if (ty < BAT_BTN_Y || ty > BAT_BTN_Y + 50) return;
+        if (tx >= 60 && tx <= 200) {
+            TouchDriver::waitForRelease();
+            BatteryLog::clear();
+            drawBatteryScreen();
+        } else if (tx >= 210 && tx <= 350) {
+            TouchDriver::waitForRelease();
+            currentScreen = SCREEN_SETTINGS;
+            drawSettingsScreen();
+        }
         return;
     }
 
