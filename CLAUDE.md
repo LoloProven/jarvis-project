@@ -34,7 +34,20 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
   de 1 h). Plan: medir el % por hora en cada estado (pantalla prendida, apagada, modo dormir) y
   recortar: Bluetooth solo cuando se usa MÚSICA, dormir antes cuando no caminás, pantalla 15 s,
   brillo por defecto más bajo, WiFi solo cuando hace falta. También: verificar los pasos con otra
-  salida de Strava; notificaciones del iPhone (ANCS); agente de IA.
+  salida de Strava (caminando, usando la "Sesion" del CRONO); agente de IA.
+- Pendiente: NOTIFICACIONES del iPhone (WhatsApp, mensajes, llamadas) con ANCS. Diseño pensado:
+  - Mismo esquema que AMS en media_remote.cpp: tras la vinculación cifrada, una tarea busca el
+    servicio ANCS (7905F431-B5CE-4E99-A40F-4B1E122D00D0) por la misma conexión y se suscribe a
+    Notification Source (9FBF120D-6301-42D9-8C58-25E699A21DBD) y Data Source
+    (22EAC6E9-24D6-4BB5-BE44-B36ACE7C7BFB); los datos se piden escribiendo en Control Point
+    (69D1D8F3-45E1-49A8-9821-9BBDFDAAD9D9): app, título y mensaje. Guía: ejemplo ANCS de NimBLE-Arduino
+    (.pio/libdeps/.../NimBLE-Arduino/examples/ANCS).
+  - El iPhone pide permiso: en Ajustes > Bluetooth > JARVIS Reloj activar "Compartir notificaciones".
+  - Pantalla: aviso arriba con app + título + mensaje (texto tamaño 2, sin tildes, cortado) y pitido
+    corto (el reloj no vibra); se cierra tocando o a los ~8 s. Llamada entrante: nombre + botones
+    RECHAZAR (acción negativa de ANCS) y cerrar. Opcional: lista de las últimas notificaciones.
+  - Respetar: no despertar del modo dormir salvo llamadas; el Bluetooth en modo dormir está apagado
+    (las notificaciones llegan al despertar).
   Idea acordada para el agente: unir AGENDA y +ALARMA en "ALARMAS" y usar la pestaña libre para
   "JARVIS" (hablar, respuesta, próximos eventos de Calendar); mantener BOOT = hablar desde cualquier
   pantalla. El reloj graba y muestra; la IA y el acceso a Calendar van en n8n.
