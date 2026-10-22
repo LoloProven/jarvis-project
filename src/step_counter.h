@@ -16,6 +16,14 @@ public:
     static bool takeWristRaise();   // true una vez por cada vez que se levanta la muñeca
     static void pollWhileSleeping();  // en modo dormir: procesar lo que juntó el sensor
     static bool walkedWithin(unsigned long ms);   // hubo pasos en los últimos ms
+
+    // Sesión (para salir a correr): cuenta solo mientras corre el cronómetro.
+    // INICIAR = sessionStart, PAUSA = sessionPause, RESET = sessionReset.
+    static void sessionStart();
+    static void sessionPause();
+    static void sessionReset();
+    static uint32_t sessionSteps();
+    static float sessionKm();
 };
 
 #endif

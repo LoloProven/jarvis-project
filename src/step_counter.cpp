@@ -237,6 +237,44 @@ void StepCounter::pollWhileSleeping() {
     dayAndSave();
 }
 
+// --- SESIÓN (atada al cronómetro) ---
+// Cuenta solo mientras el cronómetro corre: lo acumulado en tramos ya terminados más lo
+// del tramo actual (desde el último INICIAR). Los datos del día no se tocan.
+static uint32_t sessAccSteps = 0, sessStartSteps = 0;
+static float sessAccMeters = 0, sessStartMeters = 0;
+static bool sessRunning = false;
+
+void StepCounter::sessionStart() {
+    if (sessRunning) return;
+    sessStartSteps = stepCount;
+    sessStartMeters = distanceM;
+    sessRunning = true;
+}
+
+void StepCounter::sessionPause() {
+    if (!sessRunning) return;
+    sessAccSteps += stepCount - sessStartSteps;
+    sessAccMeters += distanceM - sessStartMeters;
+    sessRunning = false;
+}
+
+void StepCounter::sessionReset() {
+    sessRunning = false;
+    sessAccSteps = 0;
+    sessAccMeters = 0;
+}
+
+uint32_t StepCounter::sessionSteps() {
+    // (si pasó la medianoche durante la sesión, stepCount volvió a 0: se ignora ese tramo)
+    uint32_t cur = (sessRunning && stepCount >= sessStartSteps) ? stepCount - sessStartSteps : 0;
+    return sessAccSteps + cur;
+}
+
+float StepCounter::sessionKm() {
+    float cur = (sessRunning && distanceM >= sessStartMeters) ? distanceM - sessStartMeters : 0;
+    return (sessAccMeters + cur) / 1000.0f;
+}
+
 uint32_t StepCounter::steps() { return stepCount; }
 float StepCounter::distanceKm() { return distanceM / 1000.0f; }
 bool StepCounter::available() { return sensorOk; }

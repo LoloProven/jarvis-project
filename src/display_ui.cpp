@@ -244,10 +244,27 @@ void DisplayUI::drawChronoDigits() {
     gfx->print(buf);
 }
 
+// Sesión del cronómetro (solo en modo CRONOMETRO), debajo de los dígitos: pasos y km
+// desde INICIAR, sin contar las pausas. Texto con fondo y ancho fijo: no parpadea.
+static void drawSessionLine(Arduino_GFX* g) {
+    if (chronoShowTimer) return;
+    char buf[24];
+    g->setTextSize(2);
+    g->setTextColor(PAL_TEXTO_CLARO, PAL_FONDO);
+    snprintf(buf, sizeof(buf), "Sesion: %lu pasos", (unsigned long)StepCounter::sessionSteps());
+    g->setCursor((LCD_WIDTH - 20 * 12) / 2, 222);
+    g->printf("%-20s", buf);
+    g->setTextColor(PAL_MENTA, PAL_FONDO);
+    snprintf(buf, sizeof(buf), "%.2f km", StepCounter::sessionKm());
+    g->setCursor((LCD_WIDTH - 20 * 12) / 2, 248);
+    g->printf("%-20s", buf);
+}
+
 void DisplayUI::refreshChronoDigits() {
     if (PowerManager::isScreenOff()) return;
     if (currentScreen != SCREEN_DASHBOARD || currentTab != TAB_CHRONO) return;
     drawChronoDigits();
+    drawSessionLine(gfx);
 }
 
 // Texto tamaño 2 con letras 1 px más juntas de lo normal (11 px en vez de 12), así
@@ -473,6 +490,7 @@ void DisplayUI::drawDashboard() {
         gfx->setCursor(207 + (178 - 12 * 12) / 2, 128); gfx->print("TEMPORIZADOR");
 
         drawChronoDigits();
+        drawSessionLine(gfx);
 
         if (chronoShowTimer) {
             // Botones para cargar el tiempo.
@@ -833,10 +851,16 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
                 }
             } else if (ty >= 290 && ty <= 340) {                  // INICIAR/PAUSA y RESET
                 if (tx >= 45 && tx <= 175) {
-                    if (chronoShowTimer) AlarmManager::toggleTimer(); else AlarmManager::toggleChrono();
+                    if (chronoShowTimer) AlarmManager::toggleTimer();
+                    else {
+                        AlarmManager::toggleChrono();
+                        if (AlarmManager::isChronoRunning()) StepCounter::sessionStart();
+                        else StepCounter::sessionPause();
+                    }
                     handled = true;
                 } else if (tx >= 235 && tx <= 365) {
-                    if (chronoShowTimer) AlarmManager::resetTimer(); else AlarmManager::resetChrono();
+                    if (chronoShowTimer) AlarmManager::resetTimer();
+                    else { AlarmManager::resetChrono(); StepCounter::sessionReset(); }
                     handled = true;
                 }
             }
