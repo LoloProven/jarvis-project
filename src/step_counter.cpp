@@ -23,7 +23,11 @@ static SensorQMI8658 qmi;
 static Preferences stepPrefs;
 static bool sensorOk = false;
 
-static const uint32_t      SAMPLE_MS   = 20;     // ~50 lecturas por segundo
+// El sensor guarda las mediciones en su memoria FIFO (hasta 128) a 62,5 por segundo y se
+// leen de a tandas: cada 200 ms con el reloj despierto y cada 1 s en modo dormir. Así se
+// cuentan pasos también durmiendo (antes, en modo dormir no se contaba nada).
+static const uint32_t      READ_MS     = 200;    // cada cuánto se vacía la FIFO estando despierto
+static const unsigned long SAMPLE_PERIOD_MS = 16; // 62,5 Hz
 static const float         PEAK_G      = 0.18f;  // cuánto tiene que subir |a| sobre el promedio
 static const float         VALLEY_G    = -0.08f; // y cuánto tiene que bajar antes del próximo paso
 static const unsigned long MIN_STEP_MS = 280;    // más rápido que esto no es un paso
@@ -35,8 +39,23 @@ static const unsigned long SAVE_MS     = 300000;
 static const unsigned long SPEED_WINDOW_MS = 10000;  // velocidad con los pasos de los últimos 10 s
 
 static volatile uint32_t stepCount = 0;
+static volatile float distanceM = 0;        // metros del día (cada paso suma su largo)
 static int dayKey = -1;                     // año * 400 + día del año
 static bool dirty = false;
+
+// Largo del paso según el ritmo: caminando lento el paso es corto y trotando es largo.
+// stride (cm) = STRIDE_CM_PER_SPM * pasos por minuto, entre STRIDE_MIN_CM y STRIDE_MAX_CM.
+// Calibrado con Strava: 8056 pasos en 63 min (128 pasos/min) = 7,67 km, o sea ~95 cm por
+// paso -> 95 / 128 = 0,74 cm por cada paso/min. Antes era fijo en 70 cm y daba la mitad.
+static const float STRIDE_CM_PER_SPM = 0.74f;
+static const float STRIDE_MIN_CM = 55, STRIDE_MAX_CM = 140;
+
+static float strideMeters(float avgGapMs) {
+    if (avgGapMs <= 0) return STEP_LENGTH_CM / 100.0f;
+    float spm = 60000.0f / avgGapMs;
+    float cm = constrain(STRIDE_CM_PER_SPM * spm, STRIDE_MIN_CM, STRIDE_MAX_CM);
+    return cm / 100.0f;
+}
 
 static float gravity = 1.0f;                // promedio lento de |a|
 static bool armed = true;                   // listo para detectar el próximo pico
@@ -49,6 +68,9 @@ static const int RECENT = 40;
 static volatile unsigned long recentSteps[RECENT];
 static volatile int recentHead = 0;
 
+// Momentos y largos de los últimos pasos, para la velocidad.
+static volatile float recentStride[RECENT];
+
 static int todayKey() {
     struct tm t;
     if (!getLocalTime(&t, 0)) return -1;
@@ -59,13 +81,17 @@ static void save() {
     stepPrefs.begin("steps", false);
     stepPrefs.putInt("day", dayKey);
     stepPrefs.putUInt("base", stepCount);
+    stepPrefs.putFloat("metros", distanceM);
     stepPrefs.end();
     dirty = false;
 }
 
 static void countStep(unsigned long now) {
-    stepCount = stepCount + 1;     // (solo esta tarea escribe; el loop solo lee)
+    float stride = strideMeters(avgGap);
+    stepCount = stepCount + 1;
+    distanceM = distanceM + stride;
     recentSteps[recentHead] = now;
+    recentStride[recentHead] = stride;
     recentHead = (recentHead + 1) % RECENT;
     dirty = true;
 }
@@ -129,58 +155,74 @@ bool StepCounter::takeWristRaise() {
     return true;
 }
 
-static void stepTask(void*) {
-    TickType_t wake = xTaskGetTickCount();
-    unsigned long lastDayCheck = 0, lastSave = 0;
-    for (;;) {
-        unsigned long now = millis();
-        float ax, ay, az;
-        bool ok;
-        {
-            I2CLock lock;                        // el I2C se comparte con el loop (touch, PMU)
-            ok = qmi.getAccelerometer(ax, ay, az);
-        }
-        if (ok) {
-            onSample(sqrtf(ax * ax + ay * ay + az * az), now);
-            wristCheck(ax, ay, az, now);
-        }
+// Vacía la FIFO del sensor y procesa todas las mediciones. Se llama desde la tarea (reloj
+// despierto) y desde el loop en modo dormir; el I2CLock (recursivo) evita que se pisen.
+// La medición i de n se tomó hace (n-1-i) períodos.
+static __IMUdata fifoBuf[128];
 
-        // Medianoche (o la hora pasó a ser la real por NTP/RTC y cambió el día): de nuevo a 0.
-        if (now - lastDayCheck >= 2000) {
-            lastDayCheck = now;
-            int today = todayKey();
-            if (today >= 0 && today != dayKey) {
-                dayKey = today;
-                stepCount = 0;
-                streak = 0;
-                save();
-            }
-        }
-        if (dirty && now - lastSave >= SAVE_MS) {
-            lastSave = now;
+static void drainFifo() {
+    I2CLock lock;
+    uint16_t n = qmi.readFromFifo(fifoBuf, 128, nullptr, 0);
+    unsigned long now = millis();
+    for (uint16_t i = 0; i < n; i++) {
+        unsigned long t = now - (unsigned long)(n - 1 - i) * SAMPLE_PERIOD_MS;
+        float ax = fifoBuf[i].x, ay = fifoBuf[i].y, az = fifoBuf[i].z;
+        onSample(sqrtf(ax * ax + ay * ay + az * az), t);
+        wristCheck(ax, ay, az, t);
+    }
+}
+
+static void dayAndSave() {
+    static unsigned long lastDayCheck = 0, lastSave = 0;
+    unsigned long now = millis();
+    // Medianoche (o la hora pasó a ser la real por NTP/RTC y cambió el día): de nuevo a 0.
+    if (now - lastDayCheck >= 2000) {
+        lastDayCheck = now;
+        int today = todayKey();
+        if (today >= 0 && today != dayKey) {
+            dayKey = today;
+            stepCount = 0;
+            distanceM = 0;
+            streak = 0;
             save();
         }
-        vTaskDelayUntil(&wake, pdMS_TO_TICKS(SAMPLE_MS));
+    }
+    if (dirty && now - lastSave >= SAVE_MS) {
+        lastSave = now;
+        save();
+    }
+}
+
+static void stepTask(void*) {
+    TickType_t wake = xTaskGetTickCount();
+    for (;;) {
+        drainFifo();
+        dayAndSave();
+        vTaskDelayUntil(&wake, pdMS_TO_TICKS(READ_MS));
     }
 }
 
 void StepCounter::init() {
     sensorOk = qmi.init(Wire, IIC_SDA, IIC_SCL, QMI8658_L_SLAVE_ADDRESS);
     if (sensorOk) {
-        qmi.configAccelerometer(SensorQMI8658::ACC_RANGE_4G, SensorQMI8658::ACC_ODR_125Hz);
+        qmi.configAccelerometer(SensorQMI8658::ACC_RANGE_4G, SensorQMI8658::ACC_ODR_62_5Hz);
         sensorOk = qmi.enableAccelerometer();
+        // Modo "stream": guarda las últimas 128 mediciones (2 s a 62,5 Hz).
+        if (sensorOk) qmi.configFIFO(SensorQMI8658::FIFO_MODE_STREAM, SensorQMI8658::FIFO_SAMPLES_128);
     }
 
     // Recupera el total de hoy si el reloj se reinició durante el día.
     stepPrefs.begin("steps", true);
     int savedDay = stepPrefs.getInt("day", -1);
     uint32_t savedSteps = stepPrefs.getUInt("base", 0);
+    float savedMeters = stepPrefs.getFloat("metros", 0);
     stepPrefs.end();
     dayKey = todayKey();
-    stepCount = (savedDay == dayKey && dayKey >= 0) ? savedSteps : 0;
+    bool sameDay = (savedDay == dayKey && dayKey >= 0);
+    stepCount = sameDay ? savedSteps : 0;
+    distanceM = sameDay ? savedMeters : 0;
 
-    // Núcleo 0, como las tareas de red; el Wire de Arduino serializa el acceso al I2C
-    // entre tareas, así que puede convivir con el touch y el PMU del loop.
+    // Núcleo 0, como las tareas de red.
     if (sensorOk) xTaskCreatePinnedToCore(stepTask, "steps", 4096, NULL, 2, NULL, 0);
 }
 
@@ -188,19 +230,36 @@ void StepCounter::loop() {
     // Todo el trabajo lo hace stepTask; se deja por si hace falta algo desde el loop.
 }
 
+// En modo dormir la tarea casi no corre: el loop vacía la FIFO en cada despertar (1 s).
+void StepCounter::pollWhileSleeping() {
+    if (!sensorOk) return;
+    drainFifo();
+    dayAndSave();
+}
+
 uint32_t StepCounter::steps() { return stepCount; }
-float StepCounter::distanceKm() { return stepCount * (STEP_LENGTH_CM / 100000.0f); }
+float StepCounter::distanceKm() { return distanceM / 1000.0f; }
 bool StepCounter::available() { return sensorOk; }
 
-// Velocidad estimada: pasos de los últimos 10 s * largo del paso. 0 si estás quieto.
+// true si hubo pasos en los últimos "ms" (para no dormirse mientras caminás).
+bool StepCounter::walkedWithin(unsigned long ms) {
+    unsigned long now = millis();
+    for (int i = 0; i < RECENT; i++) {
+        unsigned long t = recentSteps[i];
+        if (t != 0 && now - t <= ms) return true;
+    }
+    return false;
+}
+
+// Velocidad estimada: largo de los pasos de los últimos 10 s. 0 si estás quieto.
 float StepCounter::speedKmh() {
     unsigned long now = millis();
     int n = 0;
+    float meters = 0;
     for (int i = 0; i < RECENT; i++) {
         unsigned long t = recentSteps[i];
-        if (t != 0 && now - t <= SPEED_WINDOW_MS) n++;
+        if (t != 0 && now - t <= SPEED_WINDOW_MS) { n++; meters += recentStride[i]; }
     }
     if (n < 3) return 0;
-    float stepsPerSec = n / (SPEED_WINDOW_MS / 1000.0f);
-    return stepsPerSec * (STEP_LENGTH_CM / 100.0f) * 3.6f;
+    return meters / (SPEED_WINDOW_MS / 1000.0f) * 3.6f;
 }

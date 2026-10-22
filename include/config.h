@@ -41,7 +41,9 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 // ...y a los 30 minutos entra en modo dormir (gasta muy poco; las alarmas suenan igual).
 #define SLEEP_AFTER_MS     1800000UL
 
-// Largo de un paso para calcular la distancia (cm). Ajustalo a tu paso:
+// Largo de paso de respaldo (cm), solo para el primer paso de una racha. La distancia usa
+// el largo según el ritmo (step_counter.cpp, STRIDE_CM_PER_SPM).
+// Antes: largo de un paso para calcular la distancia (cm). Ajustalo a tu paso:
 // caminá 10 pasos, medí la distancia y dividila por 10.
 #define STEP_LENGTH_CM  70
 

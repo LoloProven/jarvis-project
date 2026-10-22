@@ -7,6 +7,8 @@
 #include "touch_driver.h"
 #include "media_remote.h"
 #include "settings.h"
+#include "step_counter.h"
+#include "alarm_manager.h"
 #include <esp_sleep.h>
 #include <driver/gpio.h>
 
@@ -95,7 +97,11 @@ void PowerManager::lowPowerTick() {
     if (!screenOff || sleeping) return;
     if (DisplayUI::getCurrentScreen() == SCREEN_WIFI_CONFIG) return;   // el portal necesita WiFi
     unsigned long off = millis() - screenOffSince;
-    if (off > SLEEP_AFTER_MS) enterSleep();
+    // No se duerme solo si estás caminando o con el cronómetro/temporizador andando: así
+    // sigue funcionando el vistazo de la muñeca (durmiendo no anda).
+    bool active = StepCounter::walkedWithin(180000) ||
+                  AlarmManager::isChronoRunning() || AlarmManager::isTimerRunning();
+    if (off > SLEEP_AFTER_MS && !active) enterSleep();
     else if (off > WIFI_OFF_AFTER_MS && !WiFiPortal::isSuspended()) WiFiPortal::suspend();
 }
 

@@ -45,6 +45,8 @@ void loop() {
     // Modo dormir: duerme de a 1 s y entre medio solo mira PWR y las alarmas.
     if (PowerManager::isSleeping()) {
         PowerManager::WakeReason why = PowerManager::sleepTick();
+        StepCounter::pollWhileSleeping();     // los pasos se siguen contando durmiendo
+        StepCounter::takeWristRaise();        // durmiendo no hay vistazo de la muñeca
         AlarmManager::checkAlarms();          // si suena, prende la pantalla y sale del modo dormir
         if (why == PowerManager::WAKE_TOUCH) ignoreUntilRelease = true;   // ese toque solo despierta
         return;
