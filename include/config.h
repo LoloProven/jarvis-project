@@ -101,8 +101,15 @@ enum WidgetTab {
     TAB_JARVIS     // asistente: BOOT apretado = hablar
 };
 
-// Asistente JARVIS: flujo de n8n en la compu de casa (solo anda con el WiFi de casa).
-#define JARVIS_URL "http://192.168.0.57:5678/webhook/jarvis"
+// Asistente JARVIS: flujo de n8n en la compu de casa, publicado en internet con el túnel de ngrok
+// (dominio fijo de la cuenta gratis), así anda con cualquier WiFi o con los datos del celular.
+// Sin túnel, en casa: "http://192.168.0.57:5678/webhook/jarvis".
+#define JARVIS_URL "https://excretory-copier-cottage.ngrok-free.dev/webhook/jarvis"
+#ifdef SECRET_JARVIS_KEY
+#define JARVIS_KEY SECRET_JARVIS_KEY   // en secrets.h; n8n rechaza los pedidos sin esta clave
+#else
+#define JARVIS_KEY ""
+#endif
 #define JARVIS_BUTTON 0     // BOOT (GPIO 0): mantener apretado para hablar
 
 // --- PERFIL VISUAL (avatar del menú) ---

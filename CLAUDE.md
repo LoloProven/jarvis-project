@@ -9,6 +9,13 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
 - Backend: n8n (carpeta n8n-servidor).
 - Respondé siempre en español rioplatense, claro y sin jerga innecesaria (también los avisos cortos).
 
+## Para usar JARVIS (recordárselo SIEMPRE al usuario cuando hable de usarlo)
+1. PC prendida, con internet y sin suspenderse (Windows: Inicio/apagado y suspensión -> "Nunca").
+2. Doble clic en n8n-flujos\iniciar-n8n.bat: abre DOS ventanas que tienen que quedar abiertas,
+   "ngrok - JARVIS" (túnel) y la de n8n (lista cuando dice "Editor is now accessible").
+3. El reloj con cualquier internet: WiFi de casa o hotspot del iPhone (datos móviles).
+Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna de esas ventanas.
+
 ## Estado (todo probado en el reloj)
 - Pantalla con paleta pastel (include/palette.h), encabezado con nombre, "Conectado/Sin conexion" y hora.
 - Pestañas: ALARMAS (lista de alarmas diarias en NVS + botón "+ NUEVA", que abre la carga:
@@ -42,10 +49,17 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
   más fuerte de los dos canales. playPcm24k() reproduce PCM mono 24 kHz pasándolo a 16 kHz.
 - JARVIS (rama jarvis, sale de notificaciones; PROBADO en el reloj: entiende, responde con voz y
   consulta Calendar): BOOT apretado (JARVIS_BUTTON, desde el dashboard, aun con la pantalla
-  apagada) graba hasta 20 s en la PSRAM; src/jarvis.cpp manda un WAV a JARVIS_URL
-  (http://192.168.0.57:5678/webhook/jarvis, config.h) con X-Perfil; la respuesta trae X-Pregunta y
-  X-Respuesta (ASCII) y en el cuerpo la voz (PCM mono 16 bits 24 kHz), que se reproduce mientras
-  llega. Solo anda con el WiFi de casa (n8n en la compu; con ngrok se podría abrir afuera).
+  apagada) graba hasta 20 s en la PSRAM; src/jarvis.cpp manda un WAV a JARVIS_URL (config.h) con
+  X-Perfil; la respuesta trae X-Pregunta y X-Respuesta (ASCII) y en el cuerpo la voz (PCM mono 16
+  bits 24 kHz), que se reproduce mientras llega.
+  - TÚNEL ngrok (rama ngrok): JARVIS_URL = https://excretory-copier-cottage.ngrok-free.dev/webhook/
+    jarvis (dominio fijo de la cuenta gratis; ngrok 3.39 instalado con winget, authtoken ya en
+    %LOCALAPPDATA%\ngrok\ngrok.yml). Solo HTTPS (HTTP redirige): NetworkClientSecure con
+    setInsecure. Cabecera ngrok-skip-browser-warning. Seguridad: el webhook exige X-Jarvis-Clave
+    (credencial httpHeaderAuth "Clave reloj JARVIS", id jarvisClaveReloj, en n8n); el reloj la
+    toma de SECRET_JARVIS_KEY en secrets.h. Sin clave n8n responde 403. Si se pierde la credencial:
+    generar otra clave, ponerla en secrets.h y crear la credencial con n8n import:credentials
+    (archivo temporal en D:\temp, borrarlo después; nunca mostrar la clave).
   - n8n: flujo n8n-flujos/jarvis-reloj.json (id jarvisReloj00001): Webhook -> Groq whisper (voz a
     texto) -> agente (el mismo modelo y credenciales del flujo "My workflow" del usuario) con
     Calendar (buscar/crear con $fromAI para título, inicio y fin) y memoria de 6 mensajes por
@@ -63,16 +77,15 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
     calendario real, importa y activa; n8n 2.38.7 local del repo; el JSON necesita "id" y no puede
     tener BOM). Para apagar n8n: matar los node.exe con "n8n" en la línea de comandos.
     Respaldo de la base: D:\n8n-backup-2026-10-23.
-  - Prender n8n: doble clic en n8n-flujos\iniciar-n8n.bat (setea N8N_USER_FOLDER y NODES_EXCLUDE
+  - Prender n8n: doble clic en n8n-flujos\iniciar-n8n.bat (abre ngrok en otra ventana; setea N8N_USER_FOLDER y NODES_EXCLUDE
     para habilitar Execute Command, que n8n 2 trae apagado). Probar sin el reloj: mandar un WAV con
     curl --data-binary al webhook. Errores de una ejecución: tablas execution_entity/execution_data
     de n8n-servidor/.n8n/.n8n/database.sqlite (node:sqlite, solo lectura).
   - Probado: crea eventos con título y hora (parciales del 3/11 y 5/11). 5 eventos "(Sin título)"
     del 23/10 a la 1:03 quedaron del error viejo (los borra el usuario). El flujo "My workflow"
     tiene el mismo error (Crear evento sin $fromAI).
-  - SIGUIENTE (acordado): PR de bateria + notificaciones + jarvis (rama jarvis incluye todo) y
-    después TÚNEL ngrok para usar JARVIS con los datos móviles (hoy JARVIS_URL es la IP de casa;
-    el usuario tiene una clave de ngrok, no está guardada en n8n).
+  - PR #6 (bateria + notificaciones + jarvis) mergeado. Rama ngrok: túnel + clave, falta que el
+    usuario lo pruebe con los datos del celular y hacer su PR.
 - Pendiente: BATERÍA (llegó a 0 % en una salida de 1 h). Hecho (rama bateria): registro BATERIA,
   WiFi con espera creciente y apagado al minuto, pantalla 15 s, dormir a los 10 min. Falta: leer
   el registro tras un día de uso y, según dónde gaste, seguir: Bluetooth solo cuando se usa

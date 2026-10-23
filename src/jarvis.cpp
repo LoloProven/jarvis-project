@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <NetworkClientSecure.h>
 
 static const int RATE = 16000;
 static const int MAX_SECONDS = 20;                    // 640 KB en la PSRAM
@@ -56,12 +57,19 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     writeWavHeader(wav, samples);
 
     onStatus("Pensando...");
+    // n8n se publica en internet con un túnel de ngrok (solo HTTPS): así anda también con los
+    // datos del celular. No se verifica el certificado (alcanza con cifrar); quien protege a
+    // JARVIS es la clave X-Jarvis-Clave, sin ella n8n rechaza el pedido.
+    NetworkClientSecure tls;
+    tls.setInsecure();
     HTTPClient http;
-    http.begin(JARVIS_URL);
-    http.setConnectTimeout(5000);
+    http.begin(tls, JARVIS_URL);
+    http.setConnectTimeout(8000);
     http.setTimeout(45000);                            // la IA y la voz tardan unos segundos
     http.addHeader("Content-Type", "audio/wav");
     http.addHeader("X-Perfil", profile);
+    http.addHeader("X-Jarvis-Clave", JARVIS_KEY);
+    http.addHeader("ngrok-skip-browser-warning", "1"); // si no, ngrok gratis puede mandar su aviso
     const char* keys[] = { "X-Pregunta", "X-Respuesta" };
     http.collectHeaders(keys, 2);
     httpCode = http.POST(wav, WAV_HEADER + samples * 2);
