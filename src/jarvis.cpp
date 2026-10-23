@@ -3,6 +3,8 @@
 #include "audio_manager.h"
 #include "text_ascii.h"
 #include "wifi_portal.h"
+#include "alarm_manager.h"
+#include "step_counter.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -15,6 +17,8 @@ static const size_t MIN_SAMPLES = RATE / 2;          // menos de medio segundo: 
 static const size_t WAV_HEADER = 44;
 
 static uint8_t* wav = nullptr;                         // encabezado WAV + audio, en la PSRAM
+static uint8_t* voice = nullptr;                       // voz de la respuesta, en la PSRAM
+static const size_t MAX_VOICE_BYTES = 24000 * 2 * 40;  // 40 s a 24 kHz (1,9 MB)
 static char questionText[160] = "";
 static char answerText[400] = "";
 static int httpCode = 0;
@@ -36,6 +40,50 @@ static void writeWavHeader(uint8_t* h, size_t samples) {
 static void copyHeader(HTTPClient& http, const char* name, char* out, size_t outLen) {
     String v = http.header(name);
     toAscii((const uint8_t*)v.c_str(), v.length(), out, outLen);
+}
+
+// Alarmas del reloj para n8n: "07:00,08:30 (apagada)" o "ninguna".
+static String alarmsText() {
+    String s;
+    for (int i = 0; i < AlarmManager::alarmCount; i++) {
+        char buf[24];
+        const AlarmItem& a = AlarmManager::alarmList[i];
+        snprintf(buf, sizeof(buf), "%s%02d:%02d%s", i ? "," : "", a.hour, a.minute, a.active ? "" : " (apagada)");
+        s += buf;
+    }
+    return s.length() ? s : String("ninguna");
+}
+
+// Órdenes que manda n8n cuando JARVIS usa una herramienta del reloj, separadas por ";":
+// "ALARMA 07:00" (poner), "BORRAR 07:00", "TIMER 600" (segundos, arranca ya),
+// "CRONO INICIAR" / "CRONO PAUSAR" / "CRONO RESET".
+static void runActions(const String& actions) {
+    int start = 0;
+    while (start < (int)actions.length()) {
+        int end = actions.indexOf(';', start);
+        if (end < 0) end = actions.length();
+        String a = actions.substring(start, end);
+        a.trim();
+        start = end + 1;
+        int h, m;
+        unsigned long secs;
+        if (sscanf(a.c_str(), "ALARMA %d:%d", &h, &m) == 2 && h >= 0 && h < 24 && m >= 0 && m < 60) {
+            if (AlarmManager::findAlarm(h, m) < 0) AlarmManager::addAlarm(h, m);
+        } else if (sscanf(a.c_str(), "BORRAR %d:%d", &h, &m) == 2) {
+            AlarmManager::deleteAlarm(AlarmManager::findAlarm(h, m));   // -1: no hace nada
+        } else if (sscanf(a.c_str(), "TIMER %lu", &secs) == 1 && secs > 0 && secs <= 24UL * 3600) {
+            AlarmManager::startTimer(secs);
+        } else if (a == "CRONO INICIAR" && !AlarmManager::isChronoRunning()) {
+            AlarmManager::toggleChrono();          // igual que el botón INICIAR: también la sesión
+            StepCounter::sessionStart();
+        } else if (a == "CRONO PAUSAR" && AlarmManager::isChronoRunning()) {
+            AlarmManager::toggleChrono();
+            StepCounter::sessionPause();
+        } else if (a == "CRONO RESET") {
+            AlarmManager::resetChrono();
+            StepCounter::sessionReset();
+        }
+    }
 }
 
 Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
@@ -70,8 +118,9 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     http.addHeader("X-Perfil", profile);
     http.addHeader("X-Jarvis-Clave", JARVIS_KEY);
     http.addHeader("ngrok-skip-browser-warning", "1"); // si no, ngrok gratis puede mandar su aviso
-    const char* keys[] = { "X-Pregunta", "X-Respuesta" };
-    http.collectHeaders(keys, 2);
+    http.addHeader("X-Alarmas", alarmsText());         // para "apagá la alarma de las 7"
+    const char* keys[] = { "X-Pregunta", "X-Respuesta", "X-Accion" };
+    http.collectHeaders(keys, 3);
     httpCode = http.POST(wav, WAV_HEADER + samples * 2);
     if (httpCode != 200) {
         Serial.printf("[jarvis] error HTTP %d\n", httpCode);
@@ -80,36 +129,41 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     }
     copyHeader(http, "X-Pregunta", questionText, sizeof(questionText));
     copyHeader(http, "X-Respuesta", answerText, sizeof(answerText));
-    Serial.printf("[jarvis] \"%s\" -> \"%s\"\n", questionText, answerText);
+    String actions = http.header("X-Accion");
+    Serial.printf("[jarvis] \"%s\" -> \"%s\" [%s]\n", questionText, answerText, actions.c_str());
+    runActions(actions);
     onAnswer();
 
-    // La voz llega en el cuerpo: se reproduce a medida que llega.
+    // La voz llega en el cuerpo. Primero se baja entera a la PSRAM y después se reproduce de
+    // corrido: por el túnel (internet + TLS) llega a tirones, y reproduciéndola mientras
+    // llegaba se trababa cada vez que se demoraba un pedazo.
+    if (!voice) voice = (uint8_t*)ps_malloc(MAX_VOICE_BYTES);
     WiFiClient* stream = http.getStreamPtr();
     int remaining = http.getSize();                    // -1 si no se sabe el largo
-    uint8_t buf[1024 + 1];
-    size_t have = 0;                                   // un byte suelto que quedó de antes
+    size_t got = 0;
     unsigned long lastData = millis();
-    AudioManager::beginPlayback();
-    while (remaining != 0 && millis() - lastData < 5000) {
+    while (voice && remaining != 0 && got < MAX_VOICE_BYTES && millis() - lastData < 5000) {
         size_t avail = stream->available();
         if (avail == 0) {
             if (!http.connected()) break;
             delay(2);
             continue;
         }
-        size_t want = min(avail, sizeof(buf) - 1 - have);
+        size_t want = min(avail, MAX_VOICE_BYTES - got);
         if (remaining > 0) want = min(want, (size_t)remaining);
-        int n = stream->read(buf + have, want);
+        int n = stream->read(voice + got, want);
         if (n <= 0) continue;
         lastData = millis();
+        got += n;
         if (remaining > 0) remaining -= n;
-        size_t total = have + n;
-        AudioManager::playPcm24k((const int16_t*)buf, total / 2);
-        have = total % 2;
-        if (have) buf[0] = buf[total - 1];
+    }
+    http.end();
+    AudioManager::beginPlayback();
+    for (size_t off = 0; off + 1 < got; off += 4096) {
+        size_t chunk = min((size_t)4096, (got - off) & ~(size_t)1);
+        AudioManager::playPcm24k((const int16_t*)(voice + off), chunk / 2);
     }
     AudioManager::endPlayback();
-    http.end();
     return OK;
 }
 

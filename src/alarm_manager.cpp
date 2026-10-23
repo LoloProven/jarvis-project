@@ -93,6 +93,19 @@ void AlarmManager::timerAdd(int minutes) {
     else timerLeftMs += minutes * 60000UL;
 }
 
+void AlarmManager::startTimer(unsigned long seconds) {
+    timerRunning = true;
+    timerLeftMs = 0;
+    timerEndMs = millis() + seconds * 1000UL;
+}
+
+int AlarmManager::findAlarm(int h, int m) {
+    for (int i = 0; i < alarmCount; i++) {
+        if (alarmList[i].hour == h && alarmList[i].minute == m) return i;
+    }
+    return -1;
+}
+
 void AlarmManager::toggleTimer() {
     if (timerRunning) {
         timerLeftMs = getTimerRemaining();
