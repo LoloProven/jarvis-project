@@ -15,11 +15,15 @@ static WiFiMulti wifiMulti;
 static SemaphoreHandle_t wifiLock = NULL;      // wifiMulti se usa desde el loop y desde la tarea
 static volatile bool portalActive = false;     // con el portal abierto no se buscan redes
 static volatile bool suspended = false;        // WiFi apagado para ahorrar batería
-static volatile bool kick = false;             // pide reconectar ya, sin esperar los 15 s
+static volatile bool kick = false;             // pide reconectar ya, sin esperar
 static bool handlersRegistered = false;
 
 static const uint32_t CONNECT_TIMEOUT_MS  = 8000;    // por intento (incluye buscar redes)
-static const uint32_t RECONNECT_EVERY_MS  = 15000;   // cada cuánto reintenta si no hay WiFi
+// Si no encuentra ninguna red conocida (p. ej. en la calle), cada intento fallido duplica la
+// espera hasta el próximo: 15 s, 30 s, 1 min... hasta 5 min. Antes probaba cada 15 s sin
+// parar, y buscar redes es de lo que más batería gasta. Al conectarse vuelve a 15 s.
+static const uint32_t RECONNECT_MIN_MS    = 15000;
+static const uint32_t RECONNECT_MAX_MS    = 300000;
 
 // Suma una red a la lista si tiene nombre y no estaba ya.
 static void addNetwork(const String& ssid, const String& pass) {
@@ -123,6 +127,7 @@ static void diagHotspot() {
 // señal y se conecta. Así, al salir de casa se pasa sola al hotspot del celular.
 // Corre en el núcleo 0 para no trabar la pantalla mientras busca.
 static void wifiKeeperTask(void*) {
+    uint32_t wait = RECONNECT_MIN_MS;
     for (;;) {
         if (!portalActive && !suspended && WiFi.status() != WL_CONNECTED) {
 #if defined(TEST_ONLY_HOTSPOT) && defined(HAS_HOTSPOT)
@@ -131,12 +136,14 @@ static void wifiKeeperTask(void*) {
             xSemaphoreTake(wifiLock, portMAX_DELAY);
             uint8_t res = wifiMulti.run(CONNECT_TIMEOUT_MS);
             xSemaphoreGive(wifiLock);
+            if (res != WL_CONNECTED) wait = min(wait * 2, RECONNECT_MAX_MS);
 #ifdef TEST_ONLY_HOTSPOT
             Serial.printf("[diag] resultado de la conexion: %d (3=conectado, 1=no se ve la red, 4=fallo, 6=desconectado)\n", res);
 #endif
         }
         // Espera en tramos cortos para reconectar enseguida si resume() lo pide.
-        for (uint32_t t = 0; t < RECONNECT_EVERY_MS && !kick; t += 500) {
+        if (WiFi.status() == WL_CONNECTED) wait = RECONNECT_MIN_MS;
+        for (uint32_t t = 0; t < wait && !kick; t += 500) {
             vTaskDelay(pdMS_TO_TICKS(500));
         }
         kick = false;

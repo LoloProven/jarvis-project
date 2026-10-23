@@ -34,12 +34,13 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 #define TOUCH_I2C_ADDR 0x38
 
 // Tiempo sin tocar la pantalla hasta que se apaga sola.
-#define SCREEN_TIMEOUT_MS  30000UL
+#define SCREEN_TIMEOUT_MS  15000UL
 
-// Con la pantalla apagada: a los 5 minutos se apaga el WiFi (se reconecta al prenderla).
-#define WIFI_OFF_AFTER_MS  300000UL
-// ...y a los 30 minutos entra en modo dormir (gasta muy poco; las alarmas suenan igual).
-#define SLEEP_AFTER_MS     1800000UL
+// Con la pantalla apagada: al minuto se apaga el WiFi (se reconecta al prenderla).
+#define WIFI_OFF_AFTER_MS  60000UL
+// ...y a los 10 minutos entra en modo dormir (gasta muy poco; las alarmas suenan igual y los
+// pasos se siguen contando). No entra si estás caminando o corre el cronómetro/temporizador.
+#define SLEEP_AFTER_MS     600000UL
 
 // Largo de paso de respaldo (cm), solo para el primer paso de una racha. La distancia usa
 // el largo según el ritmo (step_counter.cpp, STRIDE_CM_PER_SPM).
@@ -87,16 +88,22 @@ enum ScreenState {
     SCREEN_DASHBOARD,
     SCREEN_WIFI_CONFIG,
     SCREEN_ALARM_RINGING,
-    SCREEN_SETTINGS        // AJUSTES: brillo, volumen de la alarma y WiFi
+    SCREEN_SETTINGS,       // AJUSTES: brillo, volumen de la alarma y WiFi
+    SCREEN_BATTERY         // registro de la batería (se entra desde AJUSTES)
 };
 
 // --- TABS DEL DASHBOARD ---
 enum WidgetTab {
-    TAB_AGENDA,
+    TAB_AGENDA,    // pestaña ALARMAS: la lista
     TAB_CHRONO,
-    TAB_ADD_ALARM,
-    TAB_MUSIC      // control de la música del celular por Bluetooth (reemplazó a VOZ)
+    TAB_ADD_ALARM, // también ALARMAS: cargar una nueva (botón "+ NUEVA" de la lista)
+    TAB_MUSIC,     // control de la música del celular por Bluetooth (reemplazó a VOZ)
+    TAB_JARVIS     // asistente: BOOT apretado = hablar
 };
+
+// Asistente JARVIS: flujo de n8n en la compu de casa (solo anda con el WiFi de casa).
+#define JARVIS_URL "http://192.168.0.57:5678/webhook/jarvis"
+#define JARVIS_BUTTON 0     // BOOT (GPIO 0): mantener apretado para hablar
 
 // --- PERFIL VISUAL (avatar del menú) ---
 struct Profile {

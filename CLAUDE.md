@@ -11,8 +11,9 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
 
 ## Estado (todo probado en el reloj)
 - Pantalla con paleta pastel (include/palette.h), encabezado con nombre, "Conectado/Sin conexion" y hora.
-- Pestañas: AGENDA (alarmas diarias, guardadas en NVS), CRONO (selector CRONOMETRO | TEMPORIZADOR,
-  + pasos, km y velocidad), +ALARMA, MUSICA (control de Spotify por Bluetooth + nombre de la canción).
+- Pestañas: ALARMAS (lista de alarmas diarias en NVS + botón "+ NUEVA", que abre la carga:
+  TAB_ADD_ALARM es una sub-vista de ALARMAS), CRONO (selector CRONOMETRO | TEMPORIZADOR, + pasos,
+  km y velocidad), MUSICA (Spotify por Bluetooth + nombre de la canción), JARVIS (asistente).
   Barra inferior: batería y Salir.
 - Menú de perfiles: botón AJUSTES (brillo, volumen de la alarma, configurar WiFi; guardados en NVS).
 - Alarma y temporizador suenan con DisplayUI::ringScreen(); la alarma permite POSPONER 5 min.
@@ -26,31 +27,74 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
   con Strava (8056 pasos, 7,67 km, 63 min). La barra de abajo muestra pasos/km del día (vuelven a 0
   a la medianoche); en CRONO hay una "Sesion" atada al cronómetro (INICIAR/PAUSA/RESET).
 - No entra solo en modo dormir si hubo pasos en los últimos 3 min o corre el crono/temporizador.
-- Energía: PWR corto = pantalla; PWR 1,5 s o 30 min apagada = modo dormir (sueño liviano, apaga
-  WiFi y Bluetooth, las alarmas suenan); PWR 4 s = apagado total por hardware.
-- Audio por el códec ES8311 (alarma). La grabación de voz (AudioManager::recordAndSend) existe pero
-  no se probó con n8n.
-- Pendiente: BATERÍA (el usuario dice que se descarga demasiado rápido; llegó a 0 % en una salida
-  de 1 h). Plan: medir el % por hora en cada estado (pantalla prendida, apagada, modo dormir) y
-  recortar: Bluetooth solo cuando se usa MÚSICA, dormir antes cuando no caminás, pantalla 15 s,
-  brillo por defecto más bajo, WiFi solo cuando hace falta. También: verificar los pasos con otra
-  salida de Strava (caminando, usando la "Sesion" del CRONO); agente de IA.
-- Pendiente: NOTIFICACIONES del iPhone (WhatsApp, mensajes, llamadas) con ANCS. Diseño pensado:
-  - Mismo esquema que AMS en media_remote.cpp: tras la vinculación cifrada, una tarea busca el
-    servicio ANCS (7905F431-B5CE-4E99-A40F-4B1E122D00D0) por la misma conexión y se suscribe a
-    Notification Source (9FBF120D-6301-42D9-8C58-25E699A21DBD) y Data Source
-    (22EAC6E9-24D6-4BB5-BE44-B36ACE7C7BFB); los datos se piden escribiendo en Control Point
-    (69D1D8F3-45E1-49A8-9821-9BBDFDAAD9D9): app, título y mensaje. Guía: ejemplo ANCS de NimBLE-Arduino
-    (.pio/libdeps/.../NimBLE-Arduino/examples/ANCS).
-  - El iPhone pide permiso: en Ajustes > Bluetooth > JARVIS Reloj activar "Compartir notificaciones".
-  - Pantalla: aviso arriba con app + título + mensaje (texto tamaño 2, sin tildes, cortado) y pitido
-    corto (el reloj no vibra); se cierra tocando o a los ~8 s. Llamada entrante: nombre + botones
-    RECHAZAR (acción negativa de ANCS) y cerrar. Opcional: lista de las últimas notificaciones.
-  - Respetar: no despertar del modo dormir salvo llamadas; el Bluetooth en modo dormir está apagado
-    (las notificaciones llegan al despertar).
-  Idea acordada para el agente: unir AGENDA y +ALARMA en "ALARMAS" y usar la pestaña libre para
-  "JARVIS" (hablar, respuesta, próximos eventos de Calendar); mantener BOOT = hablar desde cualquier
-  pantalla. El reloj graba y muestra; la IA y el acceso a Calendar van en n8n.
+- Energía: PWR corto = pantalla; PWR 1,5 s o 10 min apagada = modo dormir (sueño liviano, apaga
+  WiFi y Bluetooth, las alarmas suenan); PWR 4 s = apagado total por hardware. La pantalla se
+  apaga a los 15 s sin tocarla; el WiFi, al minuto de apagarla. Sin red conocida, el WiFi
+  reintenta con espera creciente (15 s, 30 s... hasta 5 min) en vez de buscar cada 15 s.
+- AJUSTES > BATERIA (src/battery_log.cpp): cada 15 min anota hora, %, minutos con pantalla
+  prendida/apagada/dormido/WiFi y si cargó (guardado en NVS, 12 h). Arriba calcula el % por hora
+  de cada estado con los tramos que fueron 80 % de un solo estado. Sirve para medir antes de
+  seguir recortando.
+- Audio: el PARLANTE va por el ES8311 y el MICRÓFONO por otro chip, el ES7210 (I2C 0x40, voz por
+  GPIO 42, comparte MCLK/BCLK/WS). Sin configurar el ES7210 se leían puros ceros (el ejemplo
+  08_ES8311 de Waveshare tampoco lo configura). AudioManager::init() lo configura con la secuencia
+  de esp-bsp/es7210 (16 kHz, MCLK 256x, 16 bits, 30 dB). record() toma de cada cuadro la muestra
+  más fuerte de los dos canales. playPcm24k() reproduce PCM mono 24 kHz pasándolo a 16 kHz.
+- JARVIS (rama jarvis, sale de notificaciones; PROBADO en el reloj: entiende, responde con voz y
+  consulta Calendar): BOOT apretado (JARVIS_BUTTON, desde el dashboard, aun con la pantalla
+  apagada) graba hasta 20 s en la PSRAM; src/jarvis.cpp manda un WAV a JARVIS_URL
+  (http://192.168.0.57:5678/webhook/jarvis, config.h) con X-Perfil; la respuesta trae X-Pregunta y
+  X-Respuesta (ASCII) y en el cuerpo la voz (PCM mono 16 bits 24 kHz), que se reproduce mientras
+  llega. Solo anda con el WiFi de casa (n8n en la compu; con ngrok se podría abrir afuera).
+  - n8n: flujo n8n-flujos/jarvis-reloj.json (id jarvisReloj00001): Webhook -> Groq whisper (voz a
+    texto) -> agente (el mismo modelo y credenciales del flujo "My workflow" del usuario) con
+    Calendar (buscar/crear con $fromAI para título, inicio y fin) y memoria de 6 mensajes por
+    perfil (si no dicen hora de fin, 1 h sin preguntar) -> nodo Execute Command "Voz":
+    node n8n-flujos/voz-edge/voz.mjs <texto en base64> = voz de TOMÁS (es-AR-TomasNeural, la
+    elegida por el usuario) por el servicio de lectura en voz alta de Edge (vía NO oficial,
+    paquete msedge-tts 2.1.0: la 2.0.8 da 403), MP3 decodificado a PCM 24 kHz con mpg123-decoder;
+    si falla, el script usa n8n-flujos/voz-windows.ps1 (voz de Windows "Sabina"). Las
+    dependencias están en n8n-flujos/voz-edge (npm install ahí). Gemini TTS se sacó (gratis = 10
+    por día). Piper (voz local) descartado: no le gustó la argentina.
+  - En el repo el calendario es el marcador TU_CALENDARIO@gmail.com (n8n no acepta "primary"); al
+    importar se reemplaza por el real del flujo "My workflow" (no se sube el mail al repo). Los
+    eventos van al calendario de la cuenta de la facu (mi.unc.edu.ar), con zona de Nueva York.
+  - Importar/actualizar el flujo: con n8n APAGADO, `node n8n-flujos/importar-jarvis.mjs` (pone el
+    calendario real, importa y activa; n8n 2.38.7 local del repo; el JSON necesita "id" y no puede
+    tener BOM). Para apagar n8n: matar los node.exe con "n8n" en la línea de comandos.
+    Respaldo de la base: D:\n8n-backup-2026-10-23.
+  - Prender n8n: doble clic en n8n-flujos\iniciar-n8n.bat (setea N8N_USER_FOLDER y NODES_EXCLUDE
+    para habilitar Execute Command, que n8n 2 trae apagado). Probar sin el reloj: mandar un WAV con
+    curl --data-binary al webhook. Errores de una ejecución: tablas execution_entity/execution_data
+    de n8n-servidor/.n8n/.n8n/database.sqlite (node:sqlite, solo lectura).
+  - Probado: crea eventos con título y hora (parciales del 3/11 y 5/11). 5 eventos "(Sin título)"
+    del 23/10 a la 1:03 quedaron del error viejo (los borra el usuario). El flujo "My workflow"
+    tiene el mismo error (Crear evento sin $fromAI).
+  - SIGUIENTE (acordado): PR de bateria + notificaciones + jarvis (rama jarvis incluye todo) y
+    después TÚNEL ngrok para usar JARVIS con los datos móviles (hoy JARVIS_URL es la IP de casa;
+    el usuario tiene una clave de ngrok, no está guardada en n8n).
+- Pendiente: BATERÍA (llegó a 0 % en una salida de 1 h). Hecho (rama bateria): registro BATERIA,
+  WiFi con espera creciente y apagado al minuto, pantalla 15 s, dormir a los 10 min. Falta: leer
+  el registro tras un día de uso y, según dónde gaste, seguir: Bluetooth solo cuando se usa
+  MÚSICA (ojo: ANCS lo necesitaría prendido), brillo más bajo (el valor guardado en NVS manda
+  sobre el de fábrica), CPU más baja con pantalla prendida. También: verificar los pasos con otra
+  salida de Strava (caminando, usando la "Sesion" del CRONO).
+- NOTIFICACIONES del iPhone por ANCS (rama notificaciones, sale de bateria; probado con el iPhone,
+  funciona; PR junto con bateria cuando se pruebe la batería): src/notifications.cpp. Tras AMS, en la misma tarea (media_remote.cpp
+  amsSetupTask) se suscribe a Data Source y Notification Source; una tarea "ancs" pide app, título
+  y mensaje por Control Point de a una notificación y arma la respuesta (llega en pedazos). Se
+  ignoran las que ya estaban (bandera PreExisting). main.cpp: prende la pantalla, aviso a pantalla
+  completa (DisplayUI::drawNotification, color por app), SIN sonido (el usuario lo prefiere así);
+  se cierra tocando o a los 8 s. Llamada (categoría 1): botón RECHAZAR (acción negativa), se
+  cierra sola cuando deja de sonar. detach() no toma el mutex (se llama desde la tarea BLE).
+  - Decidido: no filtrar por No molestar (casi no ahorra batería); para ahorrar, el modo dormir.
+  - Responder con audio: el iPhone no lo permite por ANCS. Solo por n8n, y WhatsApp oficial manda
+    desde otro número (Business API); desde el número propio = librerías no oficiales, riesgo de
+    bloqueo. Descartado salvo como parte del agente JARVIS.
+  - Permiso: Ajustes > Bluetooth > JARVIS Reloj (i) > "Compartir notificaciones del sistema".
+    Si no aparece, olvidar el dispositivo y volver a vincular. Log por USB: "[ancs] ...".
+  - En modo dormir el Bluetooth está apagado: no llegan (y las viejas no se muestran al despertar).
+  - Ideas para después: lista de las últimas notificaciones; que las llamadas despierten.
 
 ## Compilar y subir (Windows)
 - PlatformIO: C:\Users\Admin\.platformio\penv\Scripts\platformio.exe (C:\Users\Admin\.platformio es un
