@@ -84,8 +84,21 @@ Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna d
   - Probado: crea eventos con título y hora (parciales del 3/11 y 5/11). 5 eventos "(Sin título)"
     del 23/10 a la 1:03 quedaron del error viejo (los borra el usuario). El flujo "My workflow"
     tiene el mismo error (Crear evento sin $fromAI).
-  - PR #6 (bateria + notificaciones + jarvis) mergeado. Rama ngrok: túnel + clave, falta que el
-    usuario lo pruebe con los datos del celular y hacer su PR.
+  - PR #6 (bateria + notificaciones + jarvis) y PR #7 (ngrok) mergeados.
+  - ACCIONES (rama jarvis-acciones): el reloj manda X-Alarmas ("07:00,08:30 (apagada)" o
+    "ninguna") y recibe X-Accion ("ALARMA 07:00;BORRAR 07:00;TIMER 600", segundos) que
+    jarvis.cpp runActions() ejecuta (AlarmManager::addAlarm/findAlarm/deleteAlarm/startTimer).
+    En n8n son herramientas Code Tool (Poner_alarma, Borrar_alarma, Temporizador) que devuelven
+    "ACCION:..."; "Armar respuesta" las busca en intermediateSteps del agente
+    (returnIntermediateSteps). Clima: httpRequestTool a Open-Meteo, Córdoba (-31.42, -64.18).
+    OJO gpt-oss-20b: una herramienta SIN parámetros falla ("Clima<|channel|>commentary"):
+    toda herramienta tiene que tener al menos un $fromAI.
+  - IDEAS PEDIDAS por el usuario (en orden acordado, después de acciones+clima): recordatorios y
+    notas (Google Tasks: OAuth que hace el usuario en n8n), resumen del día al abrir la pestaña
+    JARVIS, leer mails (Gmail: OAuth del usuario), GIMNASIO (cargar pesos semana a semana para ver
+    progreso y que diga qué día toca: tablas de datos de n8n o Google Sheets), ESTUDIO (cargar
+    programas/temas de parciales para repasar), voz propia del usuario (clonación). No se puede
+    leer las charlas del usuario con Claude.
 - Pendiente: BATERÍA (llegó a 0 % en una salida de 1 h). Hecho (rama bateria): registro BATERIA,
   WiFi con espera creciente y apagado al minuto, pantalla 15 s, dormir a los 10 min. Falta: leer
   el registro tras un día de uso y, según dónde gaste, seguir: Bluetooth solo cuando se usa
