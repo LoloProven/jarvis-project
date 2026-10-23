@@ -47,9 +47,8 @@ Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna d
   08_ES8311 de Waveshare tampoco lo configura). AudioManager::init() lo configura con la secuencia
   de esp-bsp/es7210 (16 kHz, MCLK 256x, 16 bits, 30 dB). record() toma de cada cuadro la muestra
   más fuerte de los dos canales. playPcm24k() reproduce PCM mono 24 kHz pasándolo a 16 kHz.
-- RAMAS: PR #5 a #7 mergeados (pasos, batería+notificaciones+JARVIS, ngrok). La rama
-  jarvis-acciones (alarmas/timer/cronómetro/clima por voz + plan de mañana) está subida y espera
-  que el usuario haga el PR y lo mergee: después actualizar main y borrarla (local y remota).
+- RAMAS: todo en main (PR #5 a #8: pasos, batería+notificaciones+JARVIS, ngrok, acciones de
+  JARVIS). No quedan ramas abiertas. Lo próximo (gimnasio y estudio) va en una rama nueva.
 - JARVIS (PROBADO en el reloj: entiende, responde con voz, maneja Calendar y el reloj):
   BOOT apretado (JARVIS_BUTTON, desde el dashboard, aun con la pantalla
   apagada) graba hasta 20 s en la PSRAM; src/jarvis.cpp manda un WAV a JARVIS_URL (config.h) con
