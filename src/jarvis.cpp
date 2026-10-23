@@ -3,6 +3,7 @@
 #include "audio_manager.h"
 #include "text_ascii.h"
 #include "wifi_portal.h"
+#include "alarm_manager.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -38,6 +39,40 @@ static void copyHeader(HTTPClient& http, const char* name, char* out, size_t out
     toAscii((const uint8_t*)v.c_str(), v.length(), out, outLen);
 }
 
+// Alarmas del reloj para n8n: "07:00,08:30 (apagada)" o "ninguna".
+static String alarmsText() {
+    String s;
+    for (int i = 0; i < AlarmManager::alarmCount; i++) {
+        char buf[24];
+        const AlarmItem& a = AlarmManager::alarmList[i];
+        snprintf(buf, sizeof(buf), "%s%02d:%02d%s", i ? "," : "", a.hour, a.minute, a.active ? "" : " (apagada)");
+        s += buf;
+    }
+    return s.length() ? s : String("ninguna");
+}
+
+// Órdenes que manda n8n cuando JARVIS usa una herramienta del reloj, separadas por ";":
+// "ALARMA 07:00" (poner), "BORRAR 07:00", "TIMER 600" (segundos, arranca ya).
+static void runActions(const String& actions) {
+    int start = 0;
+    while (start < (int)actions.length()) {
+        int end = actions.indexOf(';', start);
+        if (end < 0) end = actions.length();
+        String a = actions.substring(start, end);
+        a.trim();
+        start = end + 1;
+        int h, m;
+        unsigned long secs;
+        if (sscanf(a.c_str(), "ALARMA %d:%d", &h, &m) == 2 && h >= 0 && h < 24 && m >= 0 && m < 60) {
+            if (AlarmManager::findAlarm(h, m) < 0) AlarmManager::addAlarm(h, m);
+        } else if (sscanf(a.c_str(), "BORRAR %d:%d", &h, &m) == 2) {
+            AlarmManager::deleteAlarm(AlarmManager::findAlarm(h, m));   // -1: no hace nada
+        } else if (sscanf(a.c_str(), "TIMER %lu", &secs) == 1 && secs > 0 && secs <= 24UL * 3600) {
+            AlarmManager::startTimer(secs);
+        }
+    }
+}
+
 Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
                            void (*onStatus)(const char*), void (*onAnswer)()) {
     httpCode = 0;
@@ -70,8 +105,9 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     http.addHeader("X-Perfil", profile);
     http.addHeader("X-Jarvis-Clave", JARVIS_KEY);
     http.addHeader("ngrok-skip-browser-warning", "1"); // si no, ngrok gratis puede mandar su aviso
-    const char* keys[] = { "X-Pregunta", "X-Respuesta" };
-    http.collectHeaders(keys, 2);
+    http.addHeader("X-Alarmas", alarmsText());         // para "apagá la alarma de las 7"
+    const char* keys[] = { "X-Pregunta", "X-Respuesta", "X-Accion" };
+    http.collectHeaders(keys, 3);
     httpCode = http.POST(wav, WAV_HEADER + samples * 2);
     if (httpCode != 200) {
         Serial.printf("[jarvis] error HTTP %d\n", httpCode);
@@ -80,7 +116,9 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     }
     copyHeader(http, "X-Pregunta", questionText, sizeof(questionText));
     copyHeader(http, "X-Respuesta", answerText, sizeof(answerText));
-    Serial.printf("[jarvis] \"%s\" -> \"%s\"\n", questionText, answerText);
+    String actions = http.header("X-Accion");
+    Serial.printf("[jarvis] \"%s\" -> \"%s\" [%s]\n", questionText, answerText, actions.c_str());
+    runActions(actions);
     onAnswer();
 
     // La voz llega en el cuerpo: se reproduce a medida que llega.
