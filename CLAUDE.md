@@ -102,6 +102,13 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
     toda herramienta tiene que tener al menos un $fromAI. Igual falla de vez en cuando con cualquier
     herramienta: el nodo JARVIS tiene retryOnFail (3 intentos). Cronometro: "CRONO INICIAR|PAUSAR|RESET".
     La voz se baja entera a la PSRAM antes de sonar (reproducirla mientras llegaba por el túnel se trababa).
+  - MODELO (rama jarvis-gemini): Groq gratis tiene 8K tokens/min para TODOS sus modelos y JARVIS
+    lo pasaba ("too many requests", 4 de 5 alarmas fallaron). Ahora: principal gpt-oss-20b
+    (credencial "OpenAI account", rápido: n8n tarda 3-6 s en total) + needsFallback con
+    "Modelo de respaldo" = Gemini models/gemini-3.5-flash-lite (2.5 ya no existe para usuarios
+    nuevos; lento, 5-15 s, pero no falla). Sin retryOnFail (gastaba más tokens). Memoria 4,
+    instrucciones más cortas, avisa que el reloj guarda máx. 5 alarmas. Llama 4 Scout ya no está en Groq.
+    Medir tiempos por paso: D:/temp/tiempos.cjs (lee runData con flatted desde node_modules).
   - PLAN PARA MAÑANA (gimnasio y estudio, acordado; usar las Data Tables propias de n8n, sin OAuth):
     - Tabla "rutina": día de la semana -> grupo muscular y ejercicios (la pasa el usuario).
     - Tabla "pesos": fecha, ejercicio, kilos, series, repeticiones. Herramientas del agente:
@@ -118,6 +125,15 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
     progreso y que diga qué día toca: tablas de datos de n8n o Google Sheets), ESTUDIO (cargar
     programas/temas de parciales para repasar), voz propia del usuario (clonación). No se puede
     leer las charlas del usuario con Claude.
+- BATERÍA, HALLAZGO (foto del registro, 23/10): en modo dormir gastaba ~50 %/h, igual que
+  despierto (93 % -> 3 % en ~2 h; el "12,3 %/h" de arriba estaba mal por mezclar tramos enchufado
+  y lleno). O sea: algo queda prendido aunque el chip duerma. Rama jarvis-gemini: el audio (bus
+  I2S con MCLK + ES8311 + ES7210, antes siempre prendidos) se prende solo para sonar/grabar
+  (audioPowerUp/audioPowerDown en audio_manager.cpp, secuencias de apagado de esp-adf); el
+  registro ahora anota mV y S% (% del tiempo en modo dormir que el chip durmió de verdad,
+  medido alrededor de esp_light_sleep_start) y "C" = enchufado (isVbusIn) no cuenta. FALTA:
+  prueba de 30-60 min en modo dormir sin cargar y mirar el gasto; si sigue alto, sospechar del
+  panel AMOLED/touch/IMU o de salidas del AXP2101 (no hay esquema; el panel ya hace SLPIN).
 - Pendiente: BATERÍA (llegó a 0 % en una salida de 1 h). Hecho (ya en main): registro BATERIA,
   WiFi con espera creciente y apagado al minuto, pantalla 15 s, dormir a los 10 min. Falta: leer
   el registro tras un día de uso y, según dónde gaste, seguir: Bluetooth solo cuando se usa
