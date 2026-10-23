@@ -1,0 +1,354 @@
+{
+  "name": "JARVIS reloj",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryPropertyName": "audio"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d01",
+      "name": "Webhook reloj",
+      "webhookId": "5b0d6f7e-2f4c-4a8e-8f0e-6a3c1d2b9e10"
+    },
+    {
+      "parameters": {
+        "jsCode": "// El reloj manda un WAV crudo: se le pone nombre y tipo para que Groq lo reconozca.\nconst item = $input.first();\nitem.binary.audio.fileName = 'pregunta.wav';\nitem.binary.audio.mimeType = 'audio/wav';\nitem.binary.audio.fileExtension = 'wav';\nreturn [item];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d02",
+      "name": "Preparar audio"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/audio/transcriptions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "audio"
+            },
+            {
+              "name": "model",
+              "value": "whisper-large-v3-turbo"
+            },
+            {
+              "name": "language",
+              "value": "es"
+            },
+            {
+              "name": "response_format",
+              "value": "json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d03",
+      "name": "Voz a texto",
+      "credentials": {
+        "groqApi": {
+          "id": "WpbF2upUi0zssRK5",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "options": {
+          "systemMessage": "=Sos JARVIS, el asistente que vive en el reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora es {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d 'de' LLLL yyyy, HH:mm\", { locale: 'es' }) }} (hora de Argentina).\nUsá tus herramientas de Google Calendar para consultar o agendar eventos cuando te lo pidan.\nTu respuesta se lee en una pantalla chiquita y se escucha por un parlante: respondé en español rioplatense, amigable y buena onda, en una o dos oraciones cortas (menos de 250 caracteres), en texto plano, sin emojis, sin listas, sin markdown y sin JSON."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        660,
+        0
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d04",
+      "name": "JARVIS"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "openai/gpt-oss-20b",
+          "mode": "id"
+        },
+        "responsesApiEnabled": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        560,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d05",
+      "name": "Modelo de chat",
+      "credentials": {
+        "openAiApi": {
+          "id": "UM2QyzAivfIlBcGb",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Buscar_Eventos_Calendario",
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        740,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d06",
+      "name": "Buscar eventos",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "sbdk3OXim5ZeFSJW",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Crear_Evento_Calendario",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "id"
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        900,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d07",
+      "name": "Crear evento",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "sbdk3OXim5ZeFSJW",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: 'Decilo en espanol rioplatense, con tono amigable: ' + $json.output }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Charon' } } } } }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d08",
+      "name": "Texto a voz",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Bw1FsFIhxaobnbSh",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Texto para la pantalla del reloj: solo ASCII (la letra del reloj no tiene tildes ni ñ)\n// y corto, porque va en los encabezados X-Pregunta / X-Respuesta.\nconst ascii = (s) => String(s || '')\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^\\x20-\\x7E]/g, '').replace(/\\s+/g, ' ').trim();\nconst pregunta = ascii($('Voz a texto').first().json.text).slice(0, 150);\nconst respuesta = ascii($('JARVIS').first().json.output || 'No pude responder.').slice(0, 390);\n\n// Voz: Gemini la devuelve en base64, PCM mono de 16 bits a 24 kHz (lo que espera el reloj).\n// Si falló, se manda un silencio cortito y el reloj solo muestra el texto.\nlet b64 = '';\ntry { b64 = $input.first().json.candidates[0].content.parts[0].inlineData.data; } catch (e) {}\nif (!b64) b64 = Buffer.alloc(2).toString('base64');\n\nreturn [{\n  json: { pregunta, respuesta },\n  binary: { voz: { data: b64, mimeType: 'application/octet-stream', fileName: 'respuesta.pcm' } },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d09",
+      "name": "Armar respuesta"
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "set",
+        "inputFieldName": "voz",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "X-Pregunta",
+                "value": "={{ $json.pregunta }}"
+              },
+              {
+                "name": "X-Respuesta",
+                "value": "={{ $json.respuesta }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        0
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d10",
+      "name": "Responder al reloj"
+    }
+  ],
+  "connections": {
+    "Webhook reloj": {
+      "main": [
+        [
+          {
+            "node": "Preparar audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar audio": {
+      "main": [
+        [
+          {
+            "node": "Voz a texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voz a texto": {
+      "main": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JARVIS": {
+      "main": [
+        [
+          {
+            "node": "Texto a voz",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Texto a voz": {
+      "main": [
+        [
+          {
+            "node": "Armar respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar respuesta": {
+      "main": [
+        [
+          {
+            "node": "Responder al reloj",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modelo de chat": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar eventos": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear evento": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
