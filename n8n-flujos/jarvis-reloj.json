@@ -129,7 +129,7 @@
         "operation": "getAll",
         "calendar": {
           "__rl": true,
-          "value": "primary",
+          "value": "TU_CALENDARIO@gmail.com",
           "mode": "id"
         },
         "options": {}
@@ -155,7 +155,7 @@
         "toolDescription": "Crear_Evento_Calendario",
         "calendar": {
           "__rl": true,
-          "value": "primary",
+          "value": "TU_CALENDARIO@gmail.com",
           "mode": "id"
         },
         "additionalFields": {}
