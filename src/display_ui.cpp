@@ -851,7 +851,8 @@ void DisplayUI::drawJarvisTab() {
     } else if (!Jarvis::question()[0]) {
         gfx->setTextColor(PAL_LILA);
         printWrapped(gfx, "Preguntale por tu agenda, que te anote un evento o lo que quieras. "
-                          "Necesita el WiFi de casa y n8n prendido en la compu.", 30, 170, 29, 8, 24);
+                          "Necesita internet (WiFi o el hotspot del celu) y la compu con n8n prendido.",
+                          30, 170, 29, 8, 24);
     }
 }
 
@@ -874,7 +875,7 @@ void DisplayUI::talkToJarvis(bool (*keepRecording)()) {
     Jarvis::Result r = Jarvis::ask(profiles[activeProfile].name, keepRecording, jarvisOnStatus, jarvisOnAnswer);
     switch (r) {
         case Jarvis::OK:        jarvisStatus[0] = 0; break;
-        case Jarvis::NO_WIFI:   strlcpy(jarvisStatus, "Sin WiFi de casa", sizeof(jarvisStatus)); break;
+        case Jarvis::NO_WIFI:   strlcpy(jarvisStatus, "Sin internet: proba de nuevo", sizeof(jarvisStatus)); break;
         case Jarvis::TOO_SHORT: strlcpy(jarvisStatus, "Muy corto: mantene BOOT", sizeof(jarvisStatus)); break;
         case Jarvis::SERVER_ERROR:
             if (Jarvis::lastHttpCode() < 0) strlcpy(jarvisStatus, "n8n no responde", sizeof(jarvisStatus));
