@@ -19,6 +19,8 @@ static const size_t WAV_HEADER = 44;
 static uint8_t* wav = nullptr;                         // encabezado WAV + audio, en la PSRAM
 static uint8_t* voice = nullptr;                       // voz de la respuesta, en la PSRAM
 static const size_t MAX_VOICE_BYTES = 24000 * 2 * 40;  // 40 s a 24 kHz (1,9 MB)
+static const size_t PREBUFFER = 24000 * 2 * 7 / 10;    // 0,7 s de voz antes de empezar a sonar
+static const size_t PLAY_CHUNK = 4096;                 // ~85 ms por pedazo
 static char questionText[160] = "";
 static char answerText[400] = "";
 static int httpCode = 0;
@@ -92,8 +94,8 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     // Recién despierto el WiFi puede estar volviendo: se le dan unos segundos.
     if (WiFi.status() != WL_CONNECTED) {
         onStatus("Conectando WiFi...");
-        WiFiPortal::resume();
-        for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; i++) delay(200);
+        WiFiPortal::connectNow();
+        for (int i = 0; i < 75 && WiFi.status() != WL_CONNECTED; i++) delay(200);   // hasta 15 s
         if (WiFi.status() != WL_CONNECTED) return NO_WIFI;
     }
     if (!wav) wav = (uint8_t*)ps_malloc(WAV_HEADER + MAX_SAMPLES * 2);
@@ -121,7 +123,9 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     http.addHeader("X-Alarmas", alarmsText());         // para "apagá la alarma de las 7"
     const char* keys[] = { "X-Pregunta", "X-Respuesta", "X-Accion" };
     http.collectHeaders(keys, 3);
+    unsigned long tSent = millis();                    // para medir dónde se va el tiempo
     httpCode = http.POST(wav, WAV_HEADER + samples * 2);
+    unsigned long tAnswer = millis();                  // subir el audio + n8n completo
     if (httpCode != 200) {
         Serial.printf("[jarvis] error HTTP %d\n", httpCode);
         http.end();
@@ -134,36 +138,60 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     runActions(actions);
     onAnswer();
 
-    // La voz llega en el cuerpo. Primero se baja entera a la PSRAM y después se reproduce de
-    // corrido: por el túnel (internet + TLS) llega a tirones, y reproduciéndola mientras
-    // llegaba se trababa cada vez que se demoraba un pedazo.
+    // La voz llega en el cuerpo, con "colchón": se empieza a reproducir apenas hay PREBUFFER
+    // bytes (~0,7 s) y el resto se sigue bajando entre pedazo y pedazo mientras suena. Si la red
+    // se atrasa y el colchón se vacía, se espera (antes se bajaba entera primero: más lento;
+    // y reproducirla tal cual llegaba se trababa por los tirones del túnel).
     if (!voice) voice = (uint8_t*)ps_malloc(MAX_VOICE_BYTES);
     WiFiClient* stream = http.getStreamPtr();
     int remaining = http.getSize();                    // -1 si no se sabe el largo
-    size_t got = 0;
-    unsigned long lastData = millis();
-    while (voice && remaining != 0 && got < MAX_VOICE_BYTES && millis() - lastData < 5000) {
-        size_t avail = stream->available();
-        if (avail == 0) {
-            if (!http.connected()) break;
-            delay(2);
-            continue;
+    size_t got = 0, played = 0;
+    bool done = !voice, playing = false;
+    int stalls = 0;
+    unsigned long lastData = millis(), firstSound = 0;
+    while (!done || (playing && played + 1 < got)) {
+        // 1) Bajar lo que haya llegado (sin esperar).
+        if (!done) {
+            size_t avail = stream->available();
+            if (avail > 0) {
+                size_t want = min(avail, MAX_VOICE_BYTES - got);
+                if (remaining > 0) want = min(want, (size_t)remaining);
+                int n = stream->read(voice + got, want);
+                if (n > 0) {
+                    lastData = millis();
+                    got += n;
+                    if (remaining > 0) remaining -= n;
+                }
+            }
+            if (remaining == 0 || got >= MAX_VOICE_BYTES || millis() - lastData > 5000 ||
+                (avail == 0 && !http.connected())) done = true;
         }
-        size_t want = min(avail, MAX_VOICE_BYTES - got);
-        if (remaining > 0) want = min(want, (size_t)remaining);
-        int n = stream->read(voice + got, want);
-        if (n <= 0) continue;
-        lastData = millis();
-        got += n;
-        if (remaining > 0) remaining -= n;
+        // 2) Arrancar cuando el colchón está lleno (o ya llegó todo).
+        if (!playing && (got >= PREBUFFER || done)) {
+            AudioManager::beginPlayback();
+            playing = true;
+            firstSound = millis();
+        }
+        // 3) Reproducir un pedazo si hay; si el colchón se vació, esperar a la red.
+        if (playing) {
+            size_t ready = (got - played) & ~(size_t)1;
+            if (ready >= PLAY_CHUNK || (done && ready > 0)) {
+                size_t n = min(PLAY_CHUNK, ready);
+                AudioManager::playPcm24k((const int16_t*)(voice + played), n / 2);
+                played += n;
+            } else if (!done) {
+                if (ready == 0 && played > 0) stalls++;
+                delay(2);
+            }
+        } else {
+            delay(2);
+        }
     }
     http.end();
-    AudioManager::beginPlayback();
-    for (size_t off = 0; off + 1 < got; off += 4096) {
-        size_t chunk = min((size_t)4096, (got - off) & ~(size_t)1);
-        AudioManager::playPcm24k((const int16_t*)(voice + off), chunk / 2);
-    }
-    AudioManager::endPlayback();
+    if (playing) AudioManager::endPlayback();
+    unsigned long tEnd = millis();
+    Serial.printf("[jarvis] tiempos: grabar->respuesta %lu ms, ->primera voz %lu ms, voz %u KB, trabas %d, total %lu ms\n",
+                  tAnswer - tSent, firstSound ? firstSound - tSent : 0, (unsigned)(got / 1024), stalls, tEnd - tSent);
     return OK;
 }
 
