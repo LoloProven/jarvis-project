@@ -59,7 +59,18 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
   BOOT apretado (JARVIS_BUTTON, desde el dashboard, aun con la pantalla
   apagada) graba hasta 20 s en la PSRAM; src/jarvis.cpp manda un WAV a JARVIS_URL (config.h) con
   X-Perfil; la respuesta trae X-Pregunta y X-Respuesta (ASCII) y en el cuerpo la voz (PCM mono 16
-  bits 24 kHz), que se baja entera a la PSRAM y después suena. Demora total 5-8 s.
+  bits 24 kHz). VERSIÓN RÁPIDA (rama jarvis-gemini): netTask (core 0) abre TLS al apretar BOOT y
+  sube el WAV en HTTP chunked MIENTRAS se graba (WAV con largo 0xFFFFFFFF; "Preparar audio" en
+  n8n lo corrige); lee a mano la respuesta (encabezados y cuerpo, con largo o chunked) a la PSRAM;
+  el loop reproduce en paralelo con 0,4 s de colchón. Medido en casa: pregunta simple 4 s desde
+  que se suelta BOOT hasta que habla; con herramienta ~6,4 s. De n8n (~3,2 s), 1,7 s es la voz de
+  Windows (con Azure bajaría a ~0,5). El log USB imprime "[jarvis] tiempos: ...". Si falla la
+  conexión TLS imprime el error y reintenta una vez (pasó 1 vez, sin causa clara).
+  BOOT sin internet llama WiFiPortal::connectNow() (corta la espera creciente de hasta 5 min).
+  Voz: Tomás por Edge DEJÓ DE ANDAR el 23/10 (403/200 del servicio); voz.mjs prueba Azure
+  Speech (oficial, F0 gratis, clave en n8n-flujos/voz-edge/azure.env, gitignored) -> Edge ->
+  Windows. El usuario está creando la cuenta de Azure (la tarjeta de Mercado Pago no la aceptó).
+  Probado con hotspot (build TEST_ONLY_HOTSPOT): anda.
   - TÚNEL ngrok: JARVIS_URL = https://excretory-copier-cottage.ngrok-free.dev/webhook/
     jarvis (dominio fijo de la cuenta gratis; ngrok 3.39 instalado con winget, authtoken ya en
     %LOCALAPPDATA%\ngrok\ngrok.yml). Solo HTTPS (HTTP redirige): NetworkClientSecure con
