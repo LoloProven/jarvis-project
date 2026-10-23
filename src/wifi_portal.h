@@ -12,6 +12,8 @@ public:
     static void handlePortal();
     static void suspend();         // apaga el WiFi para ahorrar batería
     static void resume();          // lo vuelve a prender y reconecta enseguida
+    static void connectNow();      // como resume(), pero también si ya estaba prendido sin red
+                                   // (corta la espera creciente entre intentos): para JARVIS
     static bool isSuspended();
 };
 
