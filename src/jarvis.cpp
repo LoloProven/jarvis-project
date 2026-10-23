@@ -4,6 +4,7 @@
 #include "text_ascii.h"
 #include "wifi_portal.h"
 #include "alarm_manager.h"
+#include "step_counter.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -16,6 +17,8 @@ static const size_t MIN_SAMPLES = RATE / 2;          // menos de medio segundo: 
 static const size_t WAV_HEADER = 44;
 
 static uint8_t* wav = nullptr;                         // encabezado WAV + audio, en la PSRAM
+static uint8_t* voice = nullptr;                       // voz de la respuesta, en la PSRAM
+static const size_t MAX_VOICE_BYTES = 24000 * 2 * 40;  // 40 s a 24 kHz (1,9 MB)
 static char questionText[160] = "";
 static char answerText[400] = "";
 static int httpCode = 0;
@@ -52,7 +55,8 @@ static String alarmsText() {
 }
 
 // Órdenes que manda n8n cuando JARVIS usa una herramienta del reloj, separadas por ";":
-// "ALARMA 07:00" (poner), "BORRAR 07:00", "TIMER 600" (segundos, arranca ya).
+// "ALARMA 07:00" (poner), "BORRAR 07:00", "TIMER 600" (segundos, arranca ya),
+// "CRONO INICIAR" / "CRONO PAUSAR" / "CRONO RESET".
 static void runActions(const String& actions) {
     int start = 0;
     while (start < (int)actions.length()) {
@@ -69,6 +73,15 @@ static void runActions(const String& actions) {
             AlarmManager::deleteAlarm(AlarmManager::findAlarm(h, m));   // -1: no hace nada
         } else if (sscanf(a.c_str(), "TIMER %lu", &secs) == 1 && secs > 0 && secs <= 24UL * 3600) {
             AlarmManager::startTimer(secs);
+        } else if (a == "CRONO INICIAR" && !AlarmManager::isChronoRunning()) {
+            AlarmManager::toggleChrono();          // igual que el botón INICIAR: también la sesión
+            StepCounter::sessionStart();
+        } else if (a == "CRONO PAUSAR" && AlarmManager::isChronoRunning()) {
+            AlarmManager::toggleChrono();
+            StepCounter::sessionPause();
+        } else if (a == "CRONO RESET") {
+            AlarmManager::resetChrono();
+            StepCounter::sessionReset();
         }
     }
 }
@@ -121,33 +134,36 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     runActions(actions);
     onAnswer();
 
-    // La voz llega en el cuerpo: se reproduce a medida que llega.
+    // La voz llega en el cuerpo. Primero se baja entera a la PSRAM y después se reproduce de
+    // corrido: por el túnel (internet + TLS) llega a tirones, y reproduciéndola mientras
+    // llegaba se trababa cada vez que se demoraba un pedazo.
+    if (!voice) voice = (uint8_t*)ps_malloc(MAX_VOICE_BYTES);
     WiFiClient* stream = http.getStreamPtr();
     int remaining = http.getSize();                    // -1 si no se sabe el largo
-    uint8_t buf[1024 + 1];
-    size_t have = 0;                                   // un byte suelto que quedó de antes
+    size_t got = 0;
     unsigned long lastData = millis();
-    AudioManager::beginPlayback();
-    while (remaining != 0 && millis() - lastData < 5000) {
+    while (voice && remaining != 0 && got < MAX_VOICE_BYTES && millis() - lastData < 5000) {
         size_t avail = stream->available();
         if (avail == 0) {
             if (!http.connected()) break;
             delay(2);
             continue;
         }
-        size_t want = min(avail, sizeof(buf) - 1 - have);
+        size_t want = min(avail, MAX_VOICE_BYTES - got);
         if (remaining > 0) want = min(want, (size_t)remaining);
-        int n = stream->read(buf + have, want);
+        int n = stream->read(voice + got, want);
         if (n <= 0) continue;
         lastData = millis();
+        got += n;
         if (remaining > 0) remaining -= n;
-        size_t total = have + n;
-        AudioManager::playPcm24k((const int16_t*)buf, total / 2);
-        have = total % 2;
-        if (have) buf[0] = buf[total - 1];
+    }
+    http.end();
+    AudioManager::beginPlayback();
+    for (size_t off = 0; off + 1 < got; off += 4096) {
+        size_t chunk = min((size_t)4096, (got - off) & ~(size_t)1);
+        AudioManager::playPcm24k((const int16_t*)(voice + off), chunk / 2);
     }
     AudioManager::endPlayback();
-    http.end();
     return OK;
 }
 
