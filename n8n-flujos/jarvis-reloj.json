@@ -85,7 +85,7 @@
         "promptType": "define",
         "text": "={{ $json.text }}",
         "options": {
-          "systemMessage": "=Sos JARVIS, el asistente que vive en el reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora es {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d 'de' LLLL yyyy, HH:mm\", { locale: 'es' }) }} (hora de Argentina).\nUsá tus herramientas de Google Calendar para consultar o agendar eventos cuando te lo pidan.\nTu respuesta se lee en una pantalla chiquita y se escucha por un parlante: respondé en español rioplatense, amigable y buena onda, en una o dos oraciones cortas (menos de 250 caracteres), en texto plano, sin emojis, sin listas, sin markdown y sin JSON."
+          "systemMessage": "=Sos JARVIS, el asistente que vive en el reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora es {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d 'de' LLLL yyyy, HH:mm\", { locale: 'es' }) }} (hora de Argentina).\nUsá tus herramientas de Google Calendar para consultar o agendar eventos cuando te lo pidan. Para agendar necesitás título, día y hora: si falta algo, preguntalo antes de crear el evento (recordás lo que se habló hace un rato). Nunca crees eventos sin título.\nTu respuesta se lee en una pantalla chiquita y se escucha por un parlante: respondé en español rioplatense, amigable y buena onda, en una o dos oraciones cortas (menos de 250 caracteres), en texto plano, sin emojis, sin listas, sin markdown y sin JSON."
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
@@ -125,14 +125,16 @@
     {
       "parameters": {
         "descriptionType": "manual",
-        "toolDescription": "Buscar_Eventos_Calendario",
+        "toolDescription": "Buscar_Eventos_Calendario: lista los eventos entre dos fechas",
         "operation": "getAll",
         "calendar": {
           "__rl": true,
           "value": "TU_CALENDARIO@gmail.com",
           "mode": "id"
         },
-        "options": {}
+        "options": {},
+        "timeMin": "={{ $fromAI(\"desde\", \"Inicio del rango de fechas a revisar en ISO 8601 con la zona de Argentina, por ejemplo 2026-11-05T08:00:00-03:00\", \"string\") }}",
+        "timeMax": "={{ $fromAI(\"hasta\", \"Fin del rango de fechas a revisar en ISO 8601 con la zona de Argentina, por ejemplo 2026-11-05T08:00:00-03:00\", \"string\") }}"
       },
       "type": "n8n-nodes-base.googleCalendarTool",
       "typeVersion": 1.3,
@@ -152,13 +154,17 @@
     {
       "parameters": {
         "descriptionType": "manual",
-        "toolDescription": "Crear_Evento_Calendario",
+        "toolDescription": "Crear_Evento_Calendario: agenda un evento con titulo, inicio y fin",
         "calendar": {
           "__rl": true,
           "value": "TU_CALENDARIO@gmail.com",
           "mode": "id"
         },
-        "additionalFields": {}
+        "additionalFields": {
+          "summary": "={{ $fromAI(\"titulo\", \"Titulo corto del evento, por ejemplo: Examen de Analisis Matematico 3\", \"string\") }}"
+        },
+        "start": "={{ $fromAI(\"inicio\", \"Fecha y hora de inicio del evento en ISO 8601 con la zona de Argentina, por ejemplo 2026-11-05T08:00:00-03:00\", \"string\") }}",
+        "end": "={{ $fromAI(\"fin\", \"Fecha y hora de fin en ISO 8601 con la zona de Argentina, por ejemplo 2026-11-05T08:00:00-03:00. Si no la dicen, una hora despues del inicio\", \"string\") }}"
       },
       "type": "n8n-nodes-base.googleCalendarTool",
       "typeVersion": 1.3,
@@ -196,7 +202,7 @@
       ],
       "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d08",
       "name": "Texto a voz",
-      "onError": "continueRegularOutput",
+      "onError": "continueErrorOutput",
       "credentials": {
         "googlePalmApi": {
           "id": "Bw1FsFIhxaobnbSh",
@@ -206,12 +212,12 @@
     },
     {
       "parameters": {
-        "jsCode": "// Texto para la pantalla del reloj: solo ASCII (la letra del reloj no tiene tildes ni ñ)\n// y corto, porque va en los encabezados X-Pregunta / X-Respuesta.\nconst ascii = (s) => String(s || '')\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^\\x20-\\x7E]/g, '').replace(/\\s+/g, ' ').trim();\nconst pregunta = ascii($('Voz a texto').first().json.text).slice(0, 150);\nconst respuesta = ascii($('JARVIS').first().json.output || 'No pude responder.').slice(0, 390);\n\n// Voz: Gemini la devuelve en base64, PCM mono de 16 bits a 24 kHz (lo que espera el reloj).\n// Si falló, se manda un silencio cortito y el reloj solo muestra el texto.\nlet b64 = '';\ntry { b64 = $input.first().json.candidates[0].content.parts[0].inlineData.data; } catch (e) {}\nif (!b64) b64 = Buffer.alloc(2).toString('base64');\n\nreturn [{\n  json: { pregunta, respuesta },\n  binary: { voz: { data: b64, mimeType: 'application/octet-stream', fileName: 'respuesta.pcm' } },\n}];"
+        "jsCode": "// Texto para la pantalla del reloj: solo ASCII (la letra del reloj no tiene tildes ni ñ)\n// y corto, porque va en los encabezados X-Pregunta / X-Respuesta.\nconst ascii = (s) => String(s || '')\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^\\x20-\\x7E]/g, '').replace(/\\s+/g, ' ').trim();\nconst pregunta = ascii($('Voz a texto').first().json.text).slice(0, 150);\nconst respuesta = ascii($('JARVIS').first().json.output || 'No pude responder.').slice(0, 390);\n\n// Voz: Gemini la devuelve en base64, PCM mono de 16 bits a 24 kHz (lo que espera el reloj).\n// Si falló, se manda un silencio cortito y el reloj solo muestra el texto.\n// Si Gemini no pudo (se acabó el uso gratis del día), se usa la voz de Windows de la compu.\nlet b64 = '';\ntry { b64 = $('Texto a voz').first().json.candidates[0].content.parts[0].inlineData.data; } catch (e) {}\nif (!b64) { try { b64 = $('Voz Windows').first().json.stdout.trim(); } catch (e) {} }\nif (!b64) b64 = Buffer.alloc(2).toString('base64');\n\nreturn [{\n  json: { pregunta, respuesta },\n  binary: { voz: { data: b64, mimeType: 'application/octet-stream', fileName: 'respuesta.pcm' } },\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
+        1320,
         0
       ],
       "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d09",
@@ -240,11 +246,39 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        1320,
+        1540,
         0
       ],
       "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d10",
       "name": "Responder al reloj"
+    },
+    {
+      "parameters": {
+        "command": "=powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Users\\Lolo\\Documents\\PlatformIO\\Projects\\proyecto-jervis\\n8n-flujos\\voz-windows.ps1\" {{ ($(\"JARVIS\").first().json.output || \"No pude responder.\").base64Encode() }}"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        200
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d11",
+      "name": "Voz Windows"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ 'reloj-' + ($('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo') }}",
+        "contextWindowLength": 6
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        660,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d12",
+      "name": "Memoria"
     }
   ],
   "connections": {
@@ -300,6 +334,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Voz Windows",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -342,6 +383,28 @@
           {
             "node": "JARVIS",
             "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voz Windows": {
+      "main": [
+        [
+          {
+            "node": "Armar respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memoria": {
+      "ai_memory": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_memory",
             "index": 0
           }
         ]
