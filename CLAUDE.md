@@ -11,7 +11,8 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
 
 ## Para usar JARVIS (recordárselo SIEMPRE al usuario cuando hable de usarlo)
 1. PC prendida, con internet y sin suspenderse (Windows: Inicio/apagado y suspensión -> "Nunca").
-2. Doble clic en n8n-flujos\iniciar-n8n.bat: abre DOS ventanas que tienen que quedar abiertas,
+2. Doble clic en el acceso directo del escritorio "JARVIS (prender n8n y ngrok)" (= n8n-flujos\
+   iniciar-n8n.bat; escritorio en D:\Users\Lolo\Desktop): abre DOS ventanas que tienen que quedar abiertas,
    "ngrok - JARVIS" (túnel) y la de n8n (lista cuando dice "Editor is now accessible").
 3. El reloj con cualquier internet: WiFi de casa o hotspot del iPhone (datos móviles).
 Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna de esas ventanas.
