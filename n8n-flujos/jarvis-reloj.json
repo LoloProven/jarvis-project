@@ -30,7 +30,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// El reloj manda un WAV crudo: se le pone nombre y tipo para que Groq lo reconozca.\nconst item = $input.first();\nitem.binary.audio.fileName = 'pregunta.wav';\nitem.binary.audio.mimeType = 'audio/wav';\nitem.binary.audio.fileExtension = 'wav';\nreturn [item];"
+        "jsCode": "// El reloj sube el WAV mientras graba (sin saber el largo final: lo manda en 0xFFFFFFFF).\n// Acá se corrige el largo y se le pone nombre y tipo para que Groq lo reconozca.\nconst item = $input.first();\nconst buf = Buffer.from(await this.helpers.getBinaryDataBuffer(0, 'audio'));\nif (buf.length >= 44 && buf.toString('ascii', 0, 4) === 'RIFF') {\n  buf.writeUInt32LE(buf.length - 8, 4);\n  buf.writeUInt32LE(buf.length - 44, 40);\n}\nitem.binary.audio = await this.helpers.prepareBinaryData(buf, 'pregunta.wav', 'audio/wav');\nreturn [item];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
