@@ -95,6 +95,16 @@ Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna d
     toda herramienta tiene que tener al menos un $fromAI. Igual falla de vez en cuando con cualquier
     herramienta: el nodo JARVIS tiene retryOnFail (3 intentos). Cronometro: "CRONO INICIAR|PAUSAR|RESET".
     La voz se baja entera a la PSRAM antes de sonar (reproducirla mientras llegaba por el túnel se trababa).
+  - PLAN PARA MAÑANA (gimnasio y estudio, acordado; usar las Data Tables propias de n8n, sin OAuth):
+    - Tabla "rutina": día de la semana -> grupo muscular y ejercicios (la pasa el usuario).
+    - Tabla "pesos": fecha, ejercicio, kilos, series, repeticiones. Herramientas del agente:
+      anotar ("hoy hice banca 60 kg 4x10"), ver progreso ("¿cómo vengo en banca?": último vs. hace
+      semanas, récord) y "¿qué toca hoy?" (cruza el día con la rutina).
+    - Tabla "temas": materia, parcial, tema, detalle (del programa que pase el usuario). Herramientas:
+      "¿qué entra en el parcial de X?" y modo repaso ("tomame examen de Análisis 3": pregunta de a
+      una, corrige, recuerda la charla con la memoria). Cargar temas: pegarlos acá o por voz.
+    - Ver antes cómo se llama/usa el nodo de Data Tables en n8n 2.38 (node_modules/n8n-nodes-base).
+    - Mejora anotada: bajar la demora (5-8 s): voz en paralelo, modelo más rápido.
   - IDEAS PEDIDAS por el usuario (en orden acordado, después de acciones+clima): recordatorios y
     notas (Google Tasks: OAuth que hace el usuario en n8n), resumen del día al abrir la pestaña
     JARVIS, leer mails (Gmail: OAuth del usuario), GIMNASIO (cargar pesos semana a semana para ver
