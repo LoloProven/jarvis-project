@@ -49,20 +49,30 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
   - n8n: flujo n8n-flujos/jarvis-reloj.json (id jarvisReloj00001): Webhook -> Groq whisper (voz a
     texto) -> agente (el mismo modelo y credenciales del flujo "My workflow" del usuario) con
     Calendar (buscar/crear con $fromAI para título, inicio y fin) y memoria de 6 mensajes por
-    perfil -> Gemini TTS (gratis, 10 por día) o, si falla, Execute Command con
-    n8n-flujos/voz-windows.ps1 (voz de Windows, sin límite) -> responde. El usuario eligió dejar
-    así la voz (Piper descartado por ahora).
+    perfil (si no dicen hora de fin, 1 h sin preguntar) -> nodo Execute Command "Voz":
+    node n8n-flujos/voz-edge/voz.mjs <texto en base64> = voz de TOMÁS (es-AR-TomasNeural, la
+    elegida por el usuario) por el servicio de lectura en voz alta de Edge (vía NO oficial,
+    paquete msedge-tts 2.1.0: la 2.0.8 da 403), MP3 decodificado a PCM 24 kHz con mpg123-decoder;
+    si falla, el script usa n8n-flujos/voz-windows.ps1 (voz de Windows "Sabina"). Las
+    dependencias están en n8n-flujos/voz-edge (npm install ahí). Gemini TTS se sacó (gratis = 10
+    por día). Piper (voz local) descartado: no le gustó la argentina.
   - En el repo el calendario es el marcador TU_CALENDARIO@gmail.com (n8n no acepta "primary"); al
-    importar se reemplaza por el real del flujo "My workflow" (no se sube el mail al repo).
-  - Importar: con n8n APAGADO, N8N_USER_FOLDER=<repo>\n8n-servidor\.n8n, node_modules\.bin\n8n.cmd
-    import:workflow --input=... y publish:workflow --id=jarvisReloj00001 (n8n 2.38.7 local del repo;
-    el JSON necesita "id" y no puede tener BOM). Respaldo de la base: D:\n8n-backup-2026-10-23.
+    importar se reemplaza por el real del flujo "My workflow" (no se sube el mail al repo). Los
+    eventos van al calendario de la cuenta de la facu (mi.unc.edu.ar), con zona de Nueva York.
+  - Importar/actualizar el flujo: con n8n APAGADO, `node n8n-flujos/importar-jarvis.mjs` (pone el
+    calendario real, importa y activa; n8n 2.38.7 local del repo; el JSON necesita "id" y no puede
+    tener BOM). Para apagar n8n: matar los node.exe con "n8n" en la línea de comandos.
+    Respaldo de la base: D:\n8n-backup-2026-10-23.
   - Prender n8n: doble clic en n8n-flujos\iniciar-n8n.bat (setea N8N_USER_FOLDER y NODES_EXCLUDE
     para habilitar Execute Command, que n8n 2 trae apagado). Probar sin el reloj: mandar un WAV con
     curl --data-binary al webhook. Errores de una ejecución: tablas execution_entity/execution_data
     de n8n-servidor/.n8n/.n8n/database.sqlite (node:sqlite, solo lectura).
-  - Pendiente: 5 eventos "(Sin título)" del 23/10 a la 1:03 creados por el error viejo (los borra el
-    usuario); probar de nuevo que cree eventos bien; el flujo "My workflow" tiene el mismo error.
+  - Probado: crea eventos con título y hora (parciales del 3/11 y 5/11). 5 eventos "(Sin título)"
+    del 23/10 a la 1:03 quedaron del error viejo (los borra el usuario). El flujo "My workflow"
+    tiene el mismo error (Crear evento sin $fromAI).
+  - SIGUIENTE (acordado): PR de bateria + notificaciones + jarvis (rama jarvis incluye todo) y
+    después TÚNEL ngrok para usar JARVIS con los datos móviles (hoy JARVIS_URL es la IP de casa;
+    el usuario tiene una clave de ngrok, no está guardada en n8n).
 - Pendiente: BATERÍA (llegó a 0 % en una salida de 1 h). Hecho (rama bateria): registro BATERIA,
   WiFi con espera creciente y apagado al minuto, pantalla 15 s, dormir a los 10 min. Falta: leer
   el registro tras un día de uso y, según dónde gaste, seguir: Bluetooth solo cuando se usa
