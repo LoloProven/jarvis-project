@@ -35,6 +35,7 @@ void setup() {
     TouchDriver::init();
     Settings::load();              // brillo y volumen guardados (antes de la pantalla)
     BatteryLog::init();
+    pinMode(JARVIS_BUTTON, INPUT_PULLUP);
     DisplayUI::init();
     AlarmManager::init();
     AudioManager::init();
@@ -107,6 +108,16 @@ void loop() {
             DisplayUI::refreshCurrentScreen();
             lastNetState = NetStatus::get();
         }
+        return;
+    }
+
+    // BOOT apretado = hablarle a JARVIS (desde cualquier pestaña, también con la pantalla
+    // apagada). Graba mientras se mantiene apretado.
+    if (digitalRead(JARVIS_BUTTON) == LOW && DisplayUI::getCurrentScreen() == SCREEN_DASHBOARD) {
+        PowerManager::turnScreenOn();
+        DisplayUI::talkToJarvis([]() { return digitalRead(JARVIS_BUTTON) == LOW; });
+        PowerManager::notifyActivity();        // la respuesta queda en pantalla el tiempo normal
+        ignoreUntilRelease = true;
         return;
     }
 

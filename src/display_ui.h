@@ -24,6 +24,9 @@ public:
     // Notificación del iPhone a pantalla completa; con llamada, botón RECHAZAR abajo.
     static void drawNotification(const char* app, const char* title, const char* message, bool call);
     static bool hitRejectButton(int16_t x, int16_t y);
+    // JARVIS: va a su pestaña, graba mientras keepRecording() (BOOT apretado), pregunta a
+    // n8n y muestra/dice la respuesta. Bloquea hasta terminar.
+    static void talkToJarvis(bool (*keepRecording)());
     static void triggerAlarmRinging(int alarmIdx);
     // Pantalla que suena (alarma/temporizador); devuelve true si se eligió POSPONER.
     static bool ringScreen(const char* title, const char* timeText, bool allowSnooze);
@@ -46,6 +49,7 @@ private:
 
     static void drawAvatar(int x, int y, uint16_t color, const char* name);
     static void drawChronoDigits();
+    static void drawJarvisTab();
     static void drawNetBox();
     static void drawBottomBar();
     static void handleMusicButton(int index);

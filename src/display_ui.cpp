@@ -11,8 +11,12 @@
 #include "media_remote.h"
 #include "settings.h"
 #include "battery_log.h"
+#include "jarvis.h"
 
 static const int TAB_W = 88;   // 4 pestañas de 88 px
+// Pestaña ALARMAS: filas de la lista (hasta MAX_ALARMS) y el botón "+ NUEVA" debajo.
+static const int ALARM_ROW_Y = 155, ALARM_ROW_STEP = 42, ALARM_ROW_H = 36;
+static const int NEW_ALARM_X = 130, NEW_ALARM_Y = 366, NEW_ALARM_W = 150, NEW_ALARM_H = 36;
 #include <WiFi.h>
 
 // --- CORREGIDO: inicialización validada contra el ejemplo oficial de Waveshare ---
@@ -512,11 +516,12 @@ void DisplayUI::drawDashboard() {
     lastClockSynced = -1;          // el encabezado se acaba de pintar: forzar la hora
     drawHeaderClockOnly();
 
-    // Siempre 4 pestañas (antes VOZ aparecía solo con WiFi).
-    drawTab(gfx, 15,                TAB_W, 25,                "AGENDA",  currentTab == TAB_AGENDA);
+    // 4 pestañas. ALARMAS junta la lista y la carga de una nueva (antes AGENDA y +ALARMA).
+    bool alarmsTab = currentTab == TAB_AGENDA || currentTab == TAB_ADD_ALARM;
+    drawTab(gfx, 15,                TAB_W, 19,                "ALARMAS", alarmsTab);
     drawTab(gfx, 20 + TAB_W,        TAB_W, 30 + TAB_W,        "CRONO",   currentTab == TAB_CHRONO);
-    drawTab(gfx, 25 + (TAB_W * 2),  TAB_W, 30 + (TAB_W * 2),  "+ALARMA", currentTab == TAB_ADD_ALARM);
-    drawTab(gfx, 30 + (TAB_W * 3),  TAB_W, 38 + (TAB_W * 3),  "MUSICA",  currentTab == TAB_MUSIC);
+    drawTab(gfx, 25 + (TAB_W * 2),  TAB_W, 33 + (TAB_W * 2),  "MUSICA",  currentTab == TAB_MUSIC);
+    drawTab(gfx, 30 + (TAB_W * 3),  TAB_W, 38 + (TAB_W * 3),  "JARVIS",  currentTab == TAB_JARVIS);
 
     gfx->drawRoundRect(15, 110, 380, 300, 12, PAL_LILA);
 
@@ -524,34 +529,42 @@ void DisplayUI::drawDashboard() {
         gfx->setTextColor(PAL_AMARILLO);
         gfx->setTextSize(2);
         gfx->setCursor(30, 125);
-        gfx->printf("Alarmas Programadas (%d/%d)", AlarmManager::alarmCount, MAX_ALARMS);
+        gfx->printf("Alarmas (%d/%d)", AlarmManager::alarmCount, MAX_ALARMS);
 
         if (AlarmManager::alarmCount == 0) {
             gfx->setTextColor(PAL_LILA);
             gfx->setCursor(40, 220);
-            gfx->print("Sin alarmas. Ve a +ALARMA");
-        } else {
-            for (int i = 0; i < AlarmManager::alarmCount; i++) {
-                int yPos = 160 + (i * 50);
-                bool active = AlarmManager::alarmList[i].active;
-                gfx->fillRoundRect(30, yPos, 110, 40, 8, active ? PAL_ACENTO : PAL_TARJETA);
-                gfx->setTextColor(active ? PAL_TEXTO : PAL_TEXTO_CLARO);
-                gfx->setTextSize(3);
-                gfx->setCursor(40, yPos + 8);
-                gfx->printf("%02d:%02d", AlarmManager::alarmList[i].hour, AlarmManager::alarmList[i].minute);
-
-                gfx->setTextColor(active ? PAL_OK : PAL_ALERTA);
-                gfx->setTextSize(2);
-                gfx->setCursor(155, yPos + 12);
-                gfx->print(active ? "ACTIVA" : "INACTIVA");
-
-                gfx->fillRoundRect(310, yPos, 45, 40, 8, PAL_ALERTA);
-                gfx->setTextColor(PAL_TEXTO);
-                gfx->setTextSize(3);
-                gfx->setCursor(325, yPos + 8);
-                gfx->print("X");
-            }
+            gfx->print("Sin alarmas todavia");
         }
+        for (int i = 0; i < AlarmManager::alarmCount; i++) {
+            int yPos = ALARM_ROW_Y + i * ALARM_ROW_STEP;
+            bool active = AlarmManager::alarmList[i].active;
+            gfx->fillRoundRect(30, yPos, 110, ALARM_ROW_H, 8, active ? PAL_ACENTO : PAL_TARJETA);
+            gfx->setTextColor(active ? PAL_TEXTO : PAL_TEXTO_CLARO);
+            gfx->setTextSize(3);
+            gfx->setCursor(40, yPos + 6);
+            gfx->printf("%02d:%02d", AlarmManager::alarmList[i].hour, AlarmManager::alarmList[i].minute);
+
+            gfx->setTextColor(active ? PAL_OK : PAL_ALERTA);
+            gfx->setTextSize(2);
+            gfx->setCursor(155, yPos + 10);
+            gfx->print(active ? "ACTIVA" : "INACTIVA");
+
+            gfx->fillRoundRect(310, yPos, 45, ALARM_ROW_H, 8, PAL_ALERTA);
+            gfx->setTextColor(PAL_TEXTO);
+            gfx->setTextSize(3);
+            gfx->setCursor(325, yPos + 6);
+            gfx->print("X");
+        }
+        if (AlarmManager::alarmCount < MAX_ALARMS) {
+            gfx->fillRoundRect(NEW_ALARM_X, NEW_ALARM_Y, NEW_ALARM_W, NEW_ALARM_H, 10, PAL_OK);
+            gfx->setTextColor(PAL_TEXTO);
+            gfx->setTextSize(2);
+            gfx->setCursor(NEW_ALARM_X + (NEW_ALARM_W - 7 * 12) / 2, NEW_ALARM_Y + 11);
+            gfx->print("+ NUEVA");
+        }
+    } else if (currentTab == TAB_JARVIS) {
+        drawJarvisTab();
     } else if (currentTab == TAB_CHRONO) {
         // Selector de modo: [CRONOMETRO | TEMPORIZADOR]
         gfx->setTextSize(2);
@@ -810,6 +823,67 @@ bool DisplayUI::hitRejectButton(int16_t x, int16_t y) {
     return x >= 60 && x <= LCD_WIDTH - 60 && y >= NOTIF_BTN_Y && y <= NOTIF_BTN_Y + NOTIF_BTN_H;
 }
 
+// --- PESTAÑA JARVIS ---
+// Arriba el estado (qué hacer o en qué paso va), después lo que dijiste y la respuesta.
+static const char* JARVIS_IDLE = "Mantene BOOT y habla";
+static char jarvisStatus[40] = "";
+static const int JARVIS_STATUS_Y = 122;
+
+static void drawJarvisStatus(Arduino_GFX* g) {
+    g->fillRect(25, JARVIS_STATUS_Y - 2, 360, 20, PAL_FONDO);
+    g->setTextColor(PAL_AMARILLO);
+    g->setTextSize(2);
+    g->setCursor(30, JARVIS_STATUS_Y);
+    g->print(jarvisStatus[0] ? jarvisStatus : JARVIS_IDLE);
+}
+
+void DisplayUI::drawJarvisTab() {
+    gfx->fillRect(20, 115, 370, 290, PAL_FONDO);
+    drawJarvisStatus(gfx);
+    int y = 155;
+    if (Jarvis::question()[0]) {
+        gfx->setTextColor(PAL_LILA);
+        y = printWrapped(gfx, Jarvis::question(), 30, y, 29, 2, 22) + 8;
+    }
+    if (Jarvis::answer()[0]) {
+        gfx->setTextColor(0xFFFF);
+        printWrapped(gfx, Jarvis::answer(), 30, y, 29, (400 - y) / 22, 22);
+    } else if (!Jarvis::question()[0]) {
+        gfx->setTextColor(PAL_LILA);
+        printWrapped(gfx, "Preguntale por tu agenda, que te anote un evento o lo que quieras. "
+                          "Necesita el WiFi de casa y n8n prendido en la compu.", 30, 170, 29, 8, 24);
+    }
+}
+
+// Callbacks de Jarvis::ask mientras se habla (el loop está frenado: se dibuja desde acá).
+static void jarvisOnStatus(const char* s) {
+    strlcpy(jarvisStatus, s, sizeof(jarvisStatus));
+    drawJarvisStatus(DisplayUI::getGFX());
+}
+static void jarvisOnAnswer() {
+    jarvisStatus[0] = 0;
+    DisplayUI::refreshCurrentScreen();     // muestra pregunta y respuesta mientras habla
+}
+
+void DisplayUI::talkToJarvis(bool (*keepRecording)()) {
+    if (currentScreen != SCREEN_DASHBOARD || activeProfile < 0) return;
+    if (currentTab != TAB_JARVIS) {
+        currentTab = TAB_JARVIS;
+        drawDashboard();
+    }
+    Jarvis::Result r = Jarvis::ask(profiles[activeProfile].name, keepRecording, jarvisOnStatus, jarvisOnAnswer);
+    switch (r) {
+        case Jarvis::OK:        jarvisStatus[0] = 0; break;
+        case Jarvis::NO_WIFI:   strlcpy(jarvisStatus, "Sin WiFi de casa", sizeof(jarvisStatus)); break;
+        case Jarvis::TOO_SHORT: strlcpy(jarvisStatus, "Muy corto: mantene BOOT", sizeof(jarvisStatus)); break;
+        case Jarvis::SERVER_ERROR:
+            if (Jarvis::lastHttpCode() < 0) strlcpy(jarvisStatus, "n8n no responde", sizeof(jarvisStatus));
+            else snprintf(jarvisStatus, sizeof(jarvisStatus), "Error de n8n (%d)", Jarvis::lastHttpCode());
+            break;
+    }
+    drawJarvisStatus(gfx);
+}
+
 void DisplayUI::showSleepMessage() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);
@@ -974,8 +1048,8 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
         if (ty >= 65 && ty <= 103) {
             if (tx >= 15 && tx <= 15 + TAB_W) currentTab = TAB_AGENDA;
             else if (tx >= 20 + TAB_W && tx <= 20 + (TAB_W * 2)) currentTab = TAB_CHRONO;
-            else if (tx >= 25 + (TAB_W * 2) && tx <= 25 + (TAB_W * 3)) currentTab = TAB_ADD_ALARM;
-            else if (tx >= 30 + (TAB_W * 3) && tx <= 390) currentTab = TAB_MUSIC;
+            else if (tx >= 25 + (TAB_W * 2) && tx <= 25 + (TAB_W * 3)) currentTab = TAB_MUSIC;
+            else if (tx >= 30 + (TAB_W * 3) && tx <= 390) currentTab = TAB_JARVIS;
 
             TouchDriver::waitForRelease();
             drawDashboard();
@@ -983,16 +1057,24 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
         }
 
         if (currentTab == TAB_AGENDA) {
+            if (AlarmManager::alarmCount < MAX_ALARMS &&
+                tx >= NEW_ALARM_X && tx <= NEW_ALARM_X + NEW_ALARM_W &&
+                ty >= NEW_ALARM_Y && ty <= NEW_ALARM_Y + NEW_ALARM_H) {
+                TouchDriver::waitForRelease();
+                currentTab = TAB_ADD_ALARM;
+                drawDashboard();
+                return;
+            }
             for (int i = 0; i < AlarmManager::alarmCount; i++) {
-                int yPos = 160 + (i * 50);
-                if (tx >= 310 && tx <= 355 && ty >= yPos && ty <= yPos + 40) {
+                int yPos = ALARM_ROW_Y + i * ALARM_ROW_STEP;
+                if (tx >= 310 && tx <= 355 && ty >= yPos && ty <= yPos + ALARM_ROW_H) {
                     TouchDriver::waitForRelease();
                     AlarmManager::deleteAlarm(i);
                     drawDashboard();
                     return;
                 }
                 // Tocar la hora (o el texto ACTIVA/INACTIVA) la activa o desactiva.
-                if (tx >= 30 && tx <= 300 && ty >= yPos && ty <= yPos + 40) {
+                if (tx >= 30 && tx <= 300 && ty >= yPos && ty <= yPos + ALARM_ROW_H) {
                     TouchDriver::waitForRelease();
                     AlarmManager::toggleAlarm(i);
                     drawDashboard();

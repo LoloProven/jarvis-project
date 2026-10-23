@@ -94,11 +94,16 @@ enum ScreenState {
 
 // --- TABS DEL DASHBOARD ---
 enum WidgetTab {
-    TAB_AGENDA,
+    TAB_AGENDA,    // pestaña ALARMAS: la lista
     TAB_CHRONO,
-    TAB_ADD_ALARM,
-    TAB_MUSIC      // control de la música del celular por Bluetooth (reemplazó a VOZ)
+    TAB_ADD_ALARM, // también ALARMAS: cargar una nueva (botón "+ NUEVA" de la lista)
+    TAB_MUSIC,     // control de la música del celular por Bluetooth (reemplazó a VOZ)
+    TAB_JARVIS     // asistente: BOOT apretado = hablar
 };
+
+// Asistente JARVIS: flujo de n8n en la compu de casa (solo anda con el WiFi de casa).
+#define JARVIS_URL "http://192.168.0.57:5678/webhook/jarvis"
+#define JARVIS_BUTTON 0     // BOOT (GPIO 0): mantener apretado para hablar
 
 // --- PERFIL VISUAL (avatar del menú) ---
 struct Profile {
