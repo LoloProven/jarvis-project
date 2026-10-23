@@ -1,6 +1,7 @@
 #include "audio_manager.h"
 #include "config.h"
 #include <ESP_I2S.h>
+#include <Wire.h>
 #include "es8311.h"
 
 // Audio por el códec ES8311, igual que el ejemplo 08_ES8311 de Waveshare:
@@ -33,6 +34,46 @@ static bool codecInit() {
     return true;
 }
 
+// --- MICRÓFONO: ES7210 ---
+// En esta placa el micrófono NO pasa por el ES8311 (ese es solo el parlante): va al ES7210,
+// que comparte el I2C y los relojes del I2S y entrega la voz por GPIO 42. Sin configurarlo
+// se leían puros ceros. Secuencia del driver oficial de Espressif (esp-bsp/es7210), para
+// 16 kHz con MCLK = 256 x 16 kHz, I2S de 16 bits y ganancia de 30 dB.
+static bool es7210Write(uint8_t addr, uint8_t reg, uint8_t val) {
+    Wire.beginTransmission(addr);
+    Wire.write(reg);
+    Wire.write(val);
+    return Wire.endTransmission() == 0;
+}
+
+static bool micInit() {
+    uint8_t addr = 0;
+    for (uint8_t a = 0x40; a <= 0x43 && !addr; a++) {       // según cómo estén A0/A1
+        Wire.beginTransmission(a);
+        if (Wire.endTransmission() == 0) addr = a;
+    }
+    if (!addr) return false;
+    static const uint8_t SEQ[][2] = {
+        {0x00, 0xFF}, {0x00, 0x32},                          // reset
+        {0x09, 0x30}, {0x0A, 0x30},                          // tiempos de arranque
+        {0x23, 0x2A}, {0x22, 0x0A}, {0x21, 0x2A}, {0x20, 0x0A},   // filtros pasa-altos
+        {0x11, 0x60}, {0x12, 0x00},                          // I2S estándar, 16 bits, sin TDM
+        {0x40, 0xC3},                                        // alimentación analógica
+        {0x41, 0x70}, {0x42, 0x70},                          // polarización del micrófono 2,87 V
+        {0x43, 0x1A}, {0x44, 0x1A}, {0x45, 0x1A}, {0x46, 0x1A},   // ganancia 30 dB
+        {0x47, 0x08}, {0x48, 0x08}, {0x49, 0x08}, {0x4A, 0x08},   // prender MIC1-4
+        {0x07, 0x20}, {0x02, 0xC1}, {0x04, 0x01}, {0x05, 0x00},   // 16 kHz con MCLK 4,096 MHz
+        {0x06, 0x04},                                        // apagar el DLL
+        {0x4B, 0x0F}, {0x4C, 0x0F},                          // polarización, ADC y PGA
+        {0x00, 0x71}, {0x00, 0x41},                          // arrancar
+    };
+    for (auto& r : SEQ) {
+        if (!es7210Write(addr, r[0], r[1])) return false;
+    }
+    Serial.printf("[audio] microfono ES7210 listo (0x%02X)\n", addr);
+    return true;
+}
+
 void AudioManager::init() {
     // Amplificador apagado mientras no suena nada (evita ruido de fondo).
     pinMode(AUDIO_PA_EN, OUTPUT);
@@ -47,6 +88,7 @@ void AudioManager::init() {
         Serial.println("[audio] no se pudo iniciar el ES8311");
         return;
     }
+    if (!micInit()) Serial.println("[audio] no se encontro el microfono (ES7210)");
     audioReady = true;
 }
 
@@ -77,21 +119,28 @@ void AudioManager::stopTone() {
 
 size_t AudioManager::record(int16_t* out, size_t maxSamples, bool (*keepGoing)()) {
     if (!audioReady) return 0;
-    // El I2S trae estéreo; el micrófono del ES8311 sale por el canal izquierdo,
-    // así que se guarda solo ese canal (mono, 16 bits, 16 kHz).
+    // El I2S trae estéreo y el micrófono va por un solo canal: tomando solo el izquierdo
+    // llegaban puros ceros. Se guarda, de cada cuadro, la muestra más fuerte de las dos
+    // (con un canal mudo es exactamente el otro). Mono, 16 bits, 16 kHz.
     isRecording = true;
     int16_t chunk[512];
     i2s.readBytes((char*)chunk, sizeof(chunk));   // lo viejo del buffer (y el "clic" del botón)
     size_t outSamples = 0;
+    uint32_t nonZeroL = 0, nonZeroR = 0;
     while (outSamples < maxSamples && keepGoing()) {
         size_t n = i2s.readBytes((char*)chunk, sizeof(chunk));
         if (n == 0) break;
         size_t frames = n / 4;
         for (size_t f = 0; f < frames && outSamples < maxSamples; f++) {
-            out[outSamples++] = chunk[f * 2];
+            int16_t l = chunk[f * 2], r = chunk[f * 2 + 1];
+            if (l) nonZeroL++;
+            if (r) nonZeroR++;
+            out[outSamples++] = (abs(l) >= abs(r)) ? l : r;
         }
     }
     isRecording = false;
+    Serial.printf("[audio] grabadas %u muestras (con sonido: izq %u, der %u)\n",
+                  (unsigned)outSamples, (unsigned)nonZeroL, (unsigned)nonZeroR);
     return outSamples;
 }
 
