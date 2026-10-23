@@ -16,29 +16,35 @@ static unsigned long tramoStart = 0, lastTick = 0;
 static int tramoStartPct = -1;
 static bool tramoCharging = false;
 
+static uint16_t lastMv = 0;
+
+// "charging" = cargando o enchufado: enchufado y lleno no carga, pero tampoco gasta batería,
+// y esos tramos (0 % de gasto) bajaban el promedio (mostraba 12 %/h dormido en vez de ~50).
 static int readPercent(bool& charging) {
     I2CLock lock;                          // el I2C se comparte con la tarea de pasos
     XPowersPMU& pmu = PowerManager::getPMU();
-    charging = pmu.isCharging();
+    charging = pmu.isCharging() || pmu.isVbusIn();
     if (!pmu.isBatteryConnect()) return -1;
+    lastMv = pmu.getBattVoltage();
     int p = pmu.getBatteryPercent();
     return p > 100 ? 100 : p;
 }
 
+// Claves "e2"/"s2": el registro cambió de forma (voltaje y sueño real); el viejo se ignora.
 static void save() {
     prefs.begin("batlog", false);
-    prefs.putBytes("e", entries, entryCount * sizeof(BatteryLog::Entry));
-    prefs.putBytes("s", startPct, entryCount);
+    prefs.putBytes("e2", entries, entryCount * sizeof(BatteryLog::Entry));
+    prefs.putBytes("s2", startPct, entryCount);
     prefs.end();
 }
 
 void BatteryLog::init() {
     prefs.begin("batlog", true);
-    size_t n = prefs.getBytesLength("e") / sizeof(Entry);
+    size_t n = prefs.getBytesLength("e2") / sizeof(Entry);
     if (n > MAX_ENTRIES) n = MAX_ENTRIES;
-    if (n > 0 && prefs.getBytesLength("s") == n) {
-        prefs.getBytes("e", entries, n * sizeof(Entry));
-        prefs.getBytes("s", startPct, n);
+    if (n > 0 && prefs.getBytesLength("s2") == n) {
+        prefs.getBytes("e2", entries, n * sizeof(Entry));
+        prefs.getBytes("s2", startPct, n);
         entryCount = n;
     }
     prefs.end();
@@ -74,10 +80,14 @@ void BatteryLog::tick() {
         e.offMin = (msOff + 30000) / 60000;
         e.sleepMin = (msSleep + 30000) / 60000;
         e.wifiMin = (msWifi + 30000) / 60000;
+        e.mv = lastMv;
+        uint32_t slept = PowerManager::takeSleptMs();
+        e.asleepPct = msSleep ? (uint8_t)min(100UL, (unsigned long)slept * 100UL / msSleep) : 0;
         startPct[entryCount] = tramoStartPct;
         entryCount++;
         save();
     }
+    if (!(pct >= 0 && tramoStartPct >= 0)) PowerManager::takeSleptMs();   // tramo sin anotar
     tramoStart = now;
     tramoStartPct = pct;
     tramoCharging = chargingNow;

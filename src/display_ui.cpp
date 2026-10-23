@@ -191,8 +191,9 @@ void DisplayUI::drawSettingsScreen() {
 
 // --- PANTALLA BATERIA ---
 // Gasto por hora en cada estado y los últimos tramos de 15 min del registro, el más
-// nuevo arriba. P/A/D/W = minutos con la pantalla prendida, apagada, en modo dormir y
-// con el WiFi prendido; C = estuvo cargando (no cuenta para el gasto).
+// nuevo arriba. mV = voltaje; P/A/D = minutos con la pantalla prendida, apagada y en modo
+// dormir; S% = del tiempo en modo dormir, cuánto durmió de verdad el chip; C = enchufado o
+// cargando (no cuenta para el gasto).
 static const int BAT_BTN_Y = 400;
 static const int BAT_ROWS = 8;
 
@@ -220,8 +221,8 @@ void DisplayUI::drawBatteryScreen() {
     }
 
     gfx->setTextColor(PAL_LILA);
-    gfx->setCursor(50, 160);
-    gfx->print("Hora     %  P  A  D  W");
+    gfx->setCursor(30, 160);
+    gfx->print("Hora     %   mV  P  A  D  S%");
     gfx->setTextColor(PAL_TEXTO_CLARO);
     int n = BatteryLog::count();
     if (n == 0) {
@@ -235,16 +236,16 @@ void DisplayUI::drawBatteryScreen() {
         time_t t = e.when;
         struct tm tmv;
         localtime_r(&t, &tmv);
-        snprintf(buf, sizeof(buf), "%02d:%02d %3d%% %2d %2d %2d %2d%s", tmv.tm_hour, tmv.tm_min, e.pct,
-                 e.onMin, e.offMin, e.sleepMin, e.wifiMin, e.charging ? " C" : "");
-        gfx->setCursor(50, 185 + row * 20);
+        snprintf(buf, sizeof(buf), "%02d:%02d %3d%% %4d %2d %2d %2d %3d%s", tmv.tm_hour, tmv.tm_min, e.pct,
+                 e.mv, e.onMin, e.offMin, e.sleepMin, e.asleepPct, e.charging ? " C" : "");
+        gfx->setCursor(30, 185 + row * 20);
         gfx->print(buf);
     }
     gfx->setTextColor(PAL_LILA);
-    gfx->setCursor(50, 350);
-    gfx->print("P prendida  A apagada");
-    gfx->setCursor(50, 372);
-    gfx->print("D dormido  W WiFi (min)");
+    gfx->setCursor(30, 350);
+    gfx->print("P prend. A apag. D dormido");
+    gfx->setCursor(30, 372);
+    gfx->print("S% = durmio de verdad  C=USB");
 
     gfx->setTextColor(PAL_TEXTO);
     gfx->fillRoundRect(60, BAT_BTN_Y, 140, 50, 12, PAL_TARJETA);
