@@ -8,7 +8,7 @@
 #include <HTTPClient.h>
 
 static const int RATE = 16000;
-static const int MAX_SECONDS = 10;
+static const int MAX_SECONDS = 20;                    // 640 KB en la PSRAM
 static const size_t MAX_SAMPLES = RATE * MAX_SECONDS;
 static const size_t MIN_SAMPLES = RATE / 2;          // menos de medio segundo: se descarta
 static const size_t WAV_HEADER = 44;
