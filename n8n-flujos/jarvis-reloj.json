@@ -9,7 +9,8 @@
         "responseMode": "responseNode",
         "options": {
           "binaryPropertyName": "audio"
-        }
+        },
+        "authentication": "headerAuth"
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -19,7 +20,13 @@
       ],
       "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d01",
       "name": "Webhook reloj",
-      "webhookId": "5b0d6f7e-2f4c-4a8e-8f0e-6a3c1d2b9e10"
+      "webhookId": "5b0d6f7e-2f4c-4a8e-8f0e-6a3c1d2b9e10",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jarvisClaveReloj",
+          "name": "Clave reloj JARVIS"
+        }
+      }
     },
     {
       "parameters": {
