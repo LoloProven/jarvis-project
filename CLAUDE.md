@@ -47,12 +47,15 @@ Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna d
   08_ES8311 de Waveshare tampoco lo configura). AudioManager::init() lo configura con la secuencia
   de esp-bsp/es7210 (16 kHz, MCLK 256x, 16 bits, 30 dB). record() toma de cada cuadro la muestra
   más fuerte de los dos canales. playPcm24k() reproduce PCM mono 24 kHz pasándolo a 16 kHz.
-- JARVIS (rama jarvis, sale de notificaciones; PROBADO en el reloj: entiende, responde con voz y
-  consulta Calendar): BOOT apretado (JARVIS_BUTTON, desde el dashboard, aun con la pantalla
+- RAMAS: PR #5 a #7 mergeados (pasos, batería+notificaciones+JARVIS, ngrok). La rama
+  jarvis-acciones (alarmas/timer/cronómetro/clima por voz + plan de mañana) está subida y espera
+  que el usuario haga el PR y lo mergee: después actualizar main y borrarla (local y remota).
+- JARVIS (PROBADO en el reloj: entiende, responde con voz, maneja Calendar y el reloj):
+  BOOT apretado (JARVIS_BUTTON, desde el dashboard, aun con la pantalla
   apagada) graba hasta 20 s en la PSRAM; src/jarvis.cpp manda un WAV a JARVIS_URL (config.h) con
   X-Perfil; la respuesta trae X-Pregunta y X-Respuesta (ASCII) y en el cuerpo la voz (PCM mono 16
-  bits 24 kHz), que se reproduce mientras llega.
-  - TÚNEL ngrok (rama ngrok): JARVIS_URL = https://excretory-copier-cottage.ngrok-free.dev/webhook/
+  bits 24 kHz), que se baja entera a la PSRAM y después suena. Demora total 5-8 s.
+  - TÚNEL ngrok: JARVIS_URL = https://excretory-copier-cottage.ngrok-free.dev/webhook/
     jarvis (dominio fijo de la cuenta gratis; ngrok 3.39 instalado con winget, authtoken ya en
     %LOCALAPPDATA%\ngrok\ngrok.yml). Solo HTTPS (HTTP redirige): NetworkClientSecure con
     setInsecure. Cabecera ngrok-skip-browser-warning. Seguridad: el webhook exige X-Jarvis-Clave
@@ -84,8 +87,7 @@ Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna d
   - Probado: crea eventos con título y hora (parciales del 3/11 y 5/11). 5 eventos "(Sin título)"
     del 23/10 a la 1:03 quedaron del error viejo (los borra el usuario). El flujo "My workflow"
     tiene el mismo error (Crear evento sin $fromAI).
-  - PR #6 (bateria + notificaciones + jarvis) y PR #7 (ngrok) mergeados.
-  - ACCIONES (rama jarvis-acciones): el reloj manda X-Alarmas ("07:00,08:30 (apagada)" o
+  - ACCIONES (rama jarvis-acciones, probado): el reloj manda X-Alarmas ("07:00,08:30 (apagada)" o
     "ninguna") y recibe X-Accion ("ALARMA 07:00;BORRAR 07:00;TIMER 600", segundos) que
     jarvis.cpp runActions() ejecuta (AlarmManager::addAlarm/findAlarm/deleteAlarm/startTimer).
     En n8n son herramientas Code Tool (Poner_alarma, Borrar_alarma, Temporizador) que devuelven
@@ -111,14 +113,14 @@ Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna d
     progreso y que diga qué día toca: tablas de datos de n8n o Google Sheets), ESTUDIO (cargar
     programas/temas de parciales para repasar), voz propia del usuario (clonación). No se puede
     leer las charlas del usuario con Claude.
-- Pendiente: BATERÍA (llegó a 0 % en una salida de 1 h). Hecho (rama bateria): registro BATERIA,
+- Pendiente: BATERÍA (llegó a 0 % en una salida de 1 h). Hecho (ya en main): registro BATERIA,
   WiFi con espera creciente y apagado al minuto, pantalla 15 s, dormir a los 10 min. Falta: leer
   el registro tras un día de uso y, según dónde gaste, seguir: Bluetooth solo cuando se usa
   MÚSICA (ojo: ANCS lo necesitaría prendido), brillo más bajo (el valor guardado en NVS manda
   sobre el de fábrica), CPU más baja con pantalla prendida. También: verificar los pasos con otra
   salida de Strava (caminando, usando la "Sesion" del CRONO).
-- NOTIFICACIONES del iPhone por ANCS (rama notificaciones, sale de bateria; probado con el iPhone,
-  funciona; PR junto con bateria cuando se pruebe la batería): src/notifications.cpp. Tras AMS, en la misma tarea (media_remote.cpp
+- NOTIFICACIONES del iPhone por ANCS (ya en main; probado con el iPhone): src/notifications.cpp.
+  Tras AMS, en la misma tarea (media_remote.cpp
   amsSetupTask) se suscribe a Data Source y Notification Source; una tarea "ancs" pide app, título
   y mensaje por Control Point de a una notificación y arma la respuesta (llega en pedazos). Se
   ignoran las que ya estaban (bandera PreExisting). main.cpp: prende la pantalla, aviso a pantalla
@@ -152,7 +154,7 @@ Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna d
   del usuario (gh no está instalado), merge con "Create a merge commit".
 
 ## Trampas conocidas
-- I2C compartido (touch, AXP2101, RTC, QMI8658, ES8311) entre el loop y la tarea de pasos: todo acceso
+- I2C compartido (touch, AXP2101, RTC, QMI8658, ES8311, ES7210) entre el loop y la tarea de pasos: todo acceso
   en marcha va dentro de I2CLock (include/i2c_lock.h). Sin eso el AXP2101 leía toques fantasma de PWR
   y la pantalla se prendía y apagaba sola.
 - Touch: leer el FT3168 solo cuando avisa por TP_INT (GPIO 38); si se le pregunta siempre, el log se
