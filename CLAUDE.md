@@ -92,7 +92,9 @@ Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna d
     "ACCION:..."; "Armar respuesta" las busca en intermediateSteps del agente
     (returnIntermediateSteps). Clima: httpRequestTool a Open-Meteo, Córdoba (-31.42, -64.18).
     OJO gpt-oss-20b: una herramienta SIN parámetros falla ("Clima<|channel|>commentary"):
-    toda herramienta tiene que tener al menos un $fromAI.
+    toda herramienta tiene que tener al menos un $fromAI. Igual falla de vez en cuando con cualquier
+    herramienta: el nodo JARVIS tiene retryOnFail (3 intentos). Cronometro: "CRONO INICIAR|PAUSAR|RESET".
+    La voz se baja entera a la PSRAM antes de sonar (reproducirla mientras llegaba por el túnel se trababa).
   - IDEAS PEDIDAS por el usuario (en orden acordado, después de acciones+clima): recordatorios y
     notas (Google Tasks: OAuth que hace el usuario en n8n), resumen del día al abrir la pestaña
     JARVIS, leer mails (Gmail: OAuth del usuario), GIMNASIO (cargar pesos semana a semana para ver
