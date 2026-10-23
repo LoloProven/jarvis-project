@@ -154,7 +154,8 @@ void AudioManager::stopTone() {
     audioPowerDown();
 }
 
-size_t AudioManager::record(int16_t* out, size_t maxSamples, bool (*keepGoing)()) {
+size_t AudioManager::record(int16_t* out, size_t maxSamples, bool (*keepGoing)(),
+                            volatile size_t* progress) {
     if (!audioReady) return 0;
     audioPowerUp();
     if (!audioOn) return 0;
@@ -176,6 +177,7 @@ size_t AudioManager::record(int16_t* out, size_t maxSamples, bool (*keepGoing)()
             if (r) nonZeroR++;
             out[outSamples++] = (abs(l) >= abs(r)) ? l : r;
         }
+        if (progress) *progress = outSamples;
     }
     isRecording = false;
     audioPowerDown();                      // mientras n8n piensa, el audio apagado
