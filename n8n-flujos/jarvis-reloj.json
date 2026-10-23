@@ -116,7 +116,7 @@
         "responsesApiEnabled": false,
         "options": {
           "temperature": 0.4,
-          "maxTokens": 300
+          "maxTokens": 1500
         }
       },
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
@@ -359,7 +359,7 @@
         "modelName": "models/gemini-3.5-flash-lite",
         "options": {
           "temperature": 0.4,
-          "maxOutputTokens": 300
+          "maxOutputTokens": 1500
         }
       },
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
