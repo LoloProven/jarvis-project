@@ -16,6 +16,11 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
    "ngrok - JARVIS" (túnel) y la de n8n (lista cuando dice "Editor is now accessible").
 3. El reloj con cualquier internet: WiFi de casa o hotspot del iPhone (datos móviles).
 Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna de esas ventanas.
+n8n tarda en arrancar (una vez tardó ~9 min con la ventana negra; antes 1-2 min): mientras tanto
+ngrok da 502/503. Listo = un POST sin clave al webhook por el túnel da 403. El .bat apaga las
+consultas a internet de n8n al arrancar (diagnósticos, novedades, plantillas): falta ver si mejora.
+El .bat usa la ruta completa del proyecto (el usuario lo movió al escritorio y se rompía); la
+copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla igual a la del repo.
 
 ## Estado (todo probado en el reloj)
 - Pantalla con paleta pastel (include/palette.h), encabezado con nombre, "Conectado/Sin conexion" y hora.

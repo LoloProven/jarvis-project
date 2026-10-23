@@ -14,6 +14,12 @@ cd /d "%PROYECTO%"
 start "ngrok - JARVIS" ngrok http 5678 --url=https://excretory-copier-cottage.ngrok-free.dev
 set N8N_USER_FOLDER=%PROYECTO%\n8n-servidor\.n8n
 set NODES_EXCLUDE=["n8n-nodes-base.localFileTrigger"]
+rem Que no consulte internet al arrancar (novedades, plantillas, estadisticas): arranca mas rapido.
+set N8N_DIAGNOSTICS_ENABLED=false
+set N8N_VERSION_NOTIFICATIONS_ENABLED=false
+set N8N_TEMPLATES_ENABLED=false
+set N8N_HIRING_BANNER_ENABLED=false
+set N8N_RUNNERS_ENABLED=true
 set TEMP=D:\temp
 set TMP=D:\temp
 title n8n - JARVIS
