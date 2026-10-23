@@ -92,7 +92,8 @@
         "promptType": "define",
         "text": "={{ $json.text }}",
         "options": {
-          "systemMessage": "=Sos JARVIS, el asistente que vive en el reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora es {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d 'de' LLLL yyyy, HH:mm\", { locale: 'es' }) }} (hora de Argentina).\nUsá tus herramientas de Google Calendar para consultar o agendar eventos cuando te lo pidan. Para agendar necesitás título, día y hora de inicio (si no dicen hasta qué hora, dura una hora: no lo preguntes); si falta algo de eso, preguntalo antes de crear el evento (recordás lo que se habló hace un rato). Nunca crees eventos sin título.\nTu respuesta se lee en una pantalla chiquita y se escucha por un parlante: respondé en español rioplatense, amigable y buena onda, en una o dos oraciones cortas (menos de 250 caracteres), en texto plano, sin emojis, sin listas, sin markdown y sin JSON."
+          "systemMessage": "=Sos JARVIS, el asistente que vive en el reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora es {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d 'de' LLLL yyyy, HH:mm\", { locale: 'es' }) }} (hora de Argentina).\nUsá tus herramientas de Google Calendar para consultar o agendar eventos cuando te lo pidan. Para agendar necesitás título, día y hora de inicio (si no dicen hasta qué hora, dura una hora: no lo preguntes); si falta algo de eso, preguntalo antes de crear el evento (recordás lo que se habló hace un rato). Nunca crees eventos sin título.\nManejás el reloj con tus herramientas: Poner_alarma, Borrar_alarma y Temporizador (\"despertame a las 7\" = alarma 07:00; \"a las 7 de la tarde\" = 19:00). Las alarmas que tiene el reloj ahora: {{ $('Webhook reloj').first().json.headers['x-alarmas'] || 'ninguna' }}. Para el clima usá la herramienta Clima (Córdoba).\nTu respuesta se lee en una pantalla chiquita y se escucha por un parlante: respondé en español rioplatense, amigable y buena onda, en una o dos oraciones cortas (menos de 250 caracteres), en texto plano, sin emojis, sin listas, sin markdown y sin JSON.",
+          "returnIntermediateSteps": true
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
@@ -190,7 +191,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Texto para la pantalla del reloj: solo ASCII (la letra del reloj no tiene tildes ni ñ)\n// y corto, porque va en los encabezados X-Pregunta / X-Respuesta.\nconst ascii = (s) => String(s || '')\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^\\x20-\\x7E]/g, '').replace(/\\s+/g, ' ').trim();\nconst pregunta = ascii($('Voz a texto').first().json.text).slice(0, 150);\nconst respuesta = ascii($('JARVIS').first().json.output || 'No pude responder.').slice(0, 390);\n\n// Voz: n8n-flujos/voz-edge/voz.mjs (Tomás de Edge o, si falla, la de Windows) la deja en base64,\n// PCM mono de 16 bits a 24 kHz (lo que espera el reloj). Si no hubo voz, un silencio cortito.\nlet b64 = '';\ntry { b64 = $('Voz').first().json.stdout.trim(); } catch (e) {}\nif (!b64) b64 = Buffer.alloc(2).toString('base64');\n\nreturn [{\n  json: { pregunta, respuesta },\n  binary: { voz: { data: b64, mimeType: 'application/octet-stream', fileName: 'respuesta.pcm' } },\n}];"
+        "jsCode": "// Texto para la pantalla del reloj: solo ASCII (la letra del reloj no tiene tildes ni ñ)\n// y corto, porque va en los encabezados X-Pregunta / X-Respuesta.\nconst ascii = (s) => String(s || '')\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^\\x20-\\x7E]/g, '').replace(/\\s+/g, ' ').trim();\nconst pregunta = ascii($('Voz a texto').first().json.text).slice(0, 150);\nconst respuesta = ascii($('JARVIS').first().json.output || 'No pude responder.').slice(0, 390);\n\n// Órdenes para el reloj: cada herramienta del reloj devuelve \"ACCION:ALARMA 07:00 - ...\".\n// Se juntan en el encabezado X-Accion (\"ALARMA 07:00;TIMER 600\") y el reloj las ejecuta.\nconst pasos = JSON.stringify($('JARVIS').first().json.intermediateSteps || []);\nconst accion = [...pasos.matchAll(/ACCION:([A-Z]+ [0-9:]+)/g)].map((m) => m[1]).join(';');\n\n// Voz: n8n-flujos/voz-edge/voz.mjs (Tomás de Edge o, si falla, la de Windows) la deja en base64,\n// PCM mono de 16 bits a 24 kHz (lo que espera el reloj). Si no hubo voz, un silencio cortito.\nlet b64 = '';\ntry { b64 = $('Voz').first().json.stdout.trim(); } catch (e) {}\nif (!b64) b64 = Buffer.alloc(2).toString('base64');\n\nreturn [{\n  json: { pregunta, respuesta, accion },\n  binary: { voz: { data: b64, mimeType: 'application/octet-stream', fileName: 'respuesta.pcm' } },\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -216,6 +217,10 @@
               {
                 "name": "X-Respuesta",
                 "value": "={{ $json.respuesta }}"
+              },
+              {
+                "name": "X-Accion",
+                "value": "={{ $json.accion }}"
               }
             ]
           }
@@ -257,6 +262,75 @@
       ],
       "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d13",
       "name": "Voz"
+    },
+    {
+      "parameters": {
+        "description": "Pone una alarma diaria en el reloj del usuario a esa hora (formato 24 h).",
+        "language": "javaScript",
+        "jsCode": "const p = (n) => String(n).padStart(2, '0');\nreturn `ACCION:ALARMA ${p(query.hora)}:${p(query.minuto)} - listo, alarma puesta en el reloj`;",
+        "specifyInputSchema": true,
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"hora\": {\n      \"type\": \"integer\",\n      \"description\": \"Hora 0-23\"\n    },\n    \"minuto\": {\n      \"type\": \"integer\",\n      \"description\": \"Minuto 0-59\"\n    }\n  },\n  \"required\": [\n    \"hora\",\n    \"minuto\"\n  ]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        1040,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d20",
+      "name": "Poner_alarma"
+    },
+    {
+      "parameters": {
+        "description": "Borra del reloj la alarma de esa hora (tiene que ser una de las alarmas que tiene el reloj).",
+        "language": "javaScript",
+        "jsCode": "const p = (n) => String(n).padStart(2, '0');\nreturn `ACCION:BORRAR ${p(query.hora)}:${p(query.minuto)} - listo, alarma borrada del reloj`;",
+        "specifyInputSchema": true,
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"hora\": {\n      \"type\": \"integer\",\n      \"description\": \"Hora 0-23\"\n    },\n    \"minuto\": {\n      \"type\": \"integer\",\n      \"description\": \"Minuto 0-59\"\n    }\n  },\n  \"required\": [\n    \"hora\",\n    \"minuto\"\n  ]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        1180,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d21",
+      "name": "Borrar_alarma"
+    },
+    {
+      "parameters": {
+        "description": "Arranca el temporizador (cuenta regresiva) del reloj. Al terminar suena.",
+        "language": "javaScript",
+        "jsCode": "const s = Math.round(Number(query.minutos) * 60);\nif (!(s > 0)) return 'No entendi la duracion';\nreturn `ACCION:TIMER ${s} - listo, temporizador de ${query.minutos} min andando en el reloj`;",
+        "specifyInputSchema": true,
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"minutos\": {\n      \"type\": \"number\",\n      \"description\": \"Duracion en minutos (puede tener decimales, 0.5 = 30 segundos)\"\n    }\n  },\n  \"required\": [\n    \"minutos\"\n  ]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        1320,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d22",
+      "name": "Temporizador"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Clima de Cordoba (Argentina): ahora y los proximos 3 dias. weather_code es el codigo WMO: 0 despejado, 1-3 algo a muy nublado, 45-48 niebla, 51-57 llovizna, 61-67 lluvia, 71-77 nieve, 80-82 chaparrones, 95-99 tormenta. precipitation_probability_max = probabilidad de lluvia (%).",
+        "url": "=https://api.open-meteo.com/v1/forecast?latitude=-31.42&longitude=-64.18&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=America%2FArgentina%2FCordoba&forecast_days={{ $fromAI(\"dias\", \"Cuantos dias de pronostico hacen falta contando hoy (1 = solo hoy, 2 = hasta manana, maximo 7)\", \"number\") }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1460,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d23",
+      "name": "Clima"
     }
   ],
   "connections": {
@@ -365,6 +439,50 @@
           {
             "node": "Armar respuesta",
             "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poner_alarma": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Borrar_alarma": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Temporizador": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clima": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
             "index": 0
           }
         ]
