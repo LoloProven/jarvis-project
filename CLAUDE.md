@@ -12,8 +12,10 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
 ## Para usar JARVIS (recordárselo SIEMPRE al usuario cuando hable de usarlo)
 1. PC prendida, con internet y sin suspenderse (Windows: Inicio/apagado y suspensión -> "Nunca").
 2. Doble clic en el acceso directo del escritorio "JARVIS (prender n8n y ngrok)" (= n8n-flujos\
-   iniciar-n8n.bat; escritorio en D:\Users\Lolo\Desktop): abre DOS ventanas que tienen que quedar abiertas,
-   "ngrok - JARVIS" (túnel) y la de n8n (lista cuando dice "Editor is now accessible").
+   iniciar-n8n.bat; escritorio en D:\Users\Lolo\Desktop): abre TRES ventanas que tienen que quedar
+   abiertas: "ngrok - JARVIS" (túnel), "voz - JARVIS" (minimizada, Piper) y la de n8n (lista
+   cuando dice "Editor is now accessible"). Cada vez que se reinicia n8n, JARVIS no responde
+   ~1 min: avisarle al usuario.
 3. El reloj con cualquier internet: WiFi de casa o hotspot del iPhone (datos móviles).
 Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna de esas ventanas.
 n8n tarda en arrancar (una vez tardó ~9 min con la ventana negra; antes 1-2 min): mientras tanto
@@ -67,9 +69,15 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
   Windows (con Azure bajaría a ~0,5). El log USB imprime "[jarvis] tiempos: ...". Si falla la
   conexión TLS imprime el error y reintenta una vez (pasó 1 vez, sin causa clara).
   BOOT sin internet llama WiFiPortal::connectNow() (corta la espera creciente de hasta 5 min).
-  Voz: Tomás por Edge DEJÓ DE ANDAR el 23/10 (403/200 del servicio); voz.mjs prueba Azure
-  Speech (oficial, F0 gratis, clave en n8n-flujos/voz-edge/azure.env, gitignored) -> Edge ->
-  Windows. El usuario está creando la cuenta de Azure (la tarjeta de Mercado Pago no la aceptó).
+  VOZ (elegida por el usuario): PIPER, voz es_ES-sharvard-medium, speaker 0 (hombre). Tomás de
+  Edge dejó de andar el 23/10 y Azure no aceptó sus tarjetas (descartado). n8n-flujos/
+  voz-servidor.mjs (127.0.0.1:5690, lo prende iniciar-n8n.bat en ventana minimizada "voz -
+  JARVIS") deja Piper cargado (--json-input) y devuelve PCM 24 kHz (Piper da 22 050, se
+  interpola) en ~0,3 s. n8n-flujos/voz.mjs (nodo "Voz"): servidor -> Piper en frío (~2 s) ->
+  voz-windows.ps1. Piper NO está en git (n8n-flujos/voz-piper/, gitignored): para reinstalar,
+  bajar piper_windows_amd64.zip de github.com/rhasspy/piper/releases (2023.11.14-2) y
+  descomprimir en voz-piper/piper/, y es_ES-sharvard-medium.onnx + .onnx.json de
+  huggingface.co/rhasspy/piper-voices (es/es_ES/sharvard/medium) en voz-piper/.
   Probado con hotspot (build TEST_ONLY_HOTSPOT): anda.
   - TÚNEL ngrok: JARVIS_URL = https://excretory-copier-cottage.ngrok-free.dev/webhook/
     jarvis (dominio fijo de la cuenta gratis; ngrok 3.39 instalado con winget, authtoken ya en
