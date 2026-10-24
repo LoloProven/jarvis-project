@@ -128,6 +128,13 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
     nuevos; lento, 5-15 s, pero no falla). Sin retryOnFail (gastaba más tokens). Memoria 4,
     instrucciones más cortas, avisa que el reloj guarda máx. 5 alarmas. Llama 4 Scout ya no está en Groq.
     Medir tiempos por paso: D:/temp/tiempos.cjs (lee runData con flatted desde node_modules).
+  - BUG ABIERTO (24/10 00:40): BOOT a veces no hace nada (sin pedidos en ngrok, nada en el log),
+    pasó en la calle y en casa, probablemente después de pasar por el MODO DORMIR. main.cpp tiene un
+    diagnóstico por USB: "[boot] apretado/suelto (pantalla, apagada, wifi)" y "[vivo]" cada 30 s.
+    Prueba pendiente: BOOT recién despierto, dormir (PWR 1,5 s), despertar y BOOT, mirando el log
+    (el log se corta mientras duerme: usar lectura que reconecta). Sospechas: algo del sueño liviano
+    (gpio_wakeup en GPIO0) deja BOOT sin leer; o el loop trabado en Jarvis::ask si falla
+    xTaskCreate de netTask (phase no cambia nunca) o si TLS tarda (handshake por defecto 120 s).
   - ESTADO 23/10 noche: PR #9 mergeado (todo en main, sin ramas). Pendientes: (1) el usuario dice
     que el reloj "anda un poquito trabado" en el FUNCIONAMIENTO GENERAL (no la voz): preguntar qué
     se traba (toques, pestañas, hora) y mirarlo con el log; (2) foto de BATERIA tras una noche

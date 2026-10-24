@@ -12,6 +12,7 @@
 #include "settings.h"
 #include "battery_log.h"
 #include "notifications.h"
+#include <WiFi.h>
 
 static unsigned long lastClockUpdate = 0;
 static NetState lastNetState = NET_NO_WIFI;
@@ -109,6 +110,23 @@ void loop() {
             lastNetState = NetStatus::get();
         }
         return;
+    }
+
+    // Diagnóstico por USB: cada cambio de BOOT y un "sigo vivo" cada 30 s (BOOT dejó de
+    // responder dos veces en la calle, sin dejar rastro).
+    static int lastBoot = -1;
+    static unsigned long lastAlive = 0;
+    int bootNow = digitalRead(JARVIS_BUTTON);
+    if (bootNow != lastBoot) {
+        lastBoot = bootNow;
+        Serial.printf("[boot] %s (pantalla %d, apagada %d, wifi %d)\n", bootNow == LOW ? "apretado" : "suelto",
+                      (int)DisplayUI::getCurrentScreen(), PowerManager::isScreenOff(), WiFi.status() == WL_CONNECTED);
+    }
+    if (millis() - lastAlive > 30000) {
+        lastAlive = millis();
+        Serial.printf("[vivo] boot=%d pantalla=%d apagada=%d wifi=%d memoria=%u\n", bootNow,
+                      (int)DisplayUI::getCurrentScreen(), PowerManager::isScreenOff(), WiFi.status() == WL_CONNECTED,
+                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     }
 
     // BOOT apretado = hablarle a JARVIS (desde cualquier pestaña, también con la pantalla
