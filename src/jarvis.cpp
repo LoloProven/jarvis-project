@@ -143,7 +143,7 @@ static void copyAscii(const String& v, char* out, size_t outLen) {
     toAscii((const uint8_t*)v.c_str(), v.length(), out, outLen);
 }
 
-static void netTask(void*) {
+static void netRun() {
     // "https://host/ruta" -> host y ruta.
     String url = JARVIS_URL;
     int hostStart = url.indexOf("://") + 3;
@@ -169,7 +169,7 @@ static void netTask(void*) {
         Serial.printf("[jarvis] no pude conectar con el tunel (%s)\n", err);
         httpCode = -1;
         phase = NET_FAILED;
-        vTaskDelete(NULL);
+        return;
     }
     String req = "POST " + path + " HTTP/1.1\r\nHost: " + host + "\r\n"
                  "Content-Type: audio/wav\r\nTransfer-Encoding: chunked\r\n"
@@ -197,7 +197,7 @@ static void netTask(void*) {
         c.stop();
         httpCode = ok ? 0 : -1;
         phase = NET_FAILED;
-        vTaskDelete(NULL);
+        return;
     }
     ok = sendChunk(c, nullptr, 0);                     // fin del cuerpo
     phase = NET_WAITING;
@@ -210,7 +210,7 @@ static void netTask(void*) {
         httpCode = -1;
         c.stop();
         phase = NET_FAILED;
-        vTaskDelete(NULL);
+        return;
     }
     httpCode = line.substring(9, 12).toInt();
     while (readLine(c, line, 5000) && line.length() > 0) {
@@ -229,7 +229,7 @@ static void netTask(void*) {
     if (httpCode != 200) {
         c.stop();
         phase = NET_FAILED;
-        vTaskDelete(NULL);
+        return;
     }
     phase = NET_HEADERS;
 
@@ -262,6 +262,15 @@ static void netTask(void*) {
     }
     c.stop();
     phase = NET_DONE;
+}
+
+// La tarea solo llama a netRun() y se borra. Así, al salir de netRun() (por cualquier
+// return) se liberan sus objetos (Strings, la conexión TLS). Antes netRun era la tarea misma
+// y terminaba con vTaskDelete() en el medio: los objetos nunca se liberaban y la memoria
+// interna se iba fragmentando, hasta que TLS no podía conectar ("SSL - Memory allocation
+// failed", con ~48 KB libres).
+static void netTask(void*) {
+    netRun();
     vTaskDelete(NULL);
 }
 
@@ -279,6 +288,11 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     if (!wav) wav = (uint8_t*)ps_malloc(WAV_HEADER + MAX_SAMPLES * 2);
     if (!voice) voice = (uint8_t*)ps_malloc(MAX_VOICE_BYTES);
     if (!wav || !voice) return SERVER_ERROR;
+
+    // Memoria interna (la que usa TLS): si baja pregunta a pregunta, hay una pérdida.
+    Serial.printf("[jarvis] memoria interna libre %u, bloque mas grande %u\n",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 
     // Arranca la red en paralelo (se conecta mientras empezás a hablar).
     writeWavHeader(wav, 0xFFFFFFFF);
