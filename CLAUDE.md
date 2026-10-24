@@ -138,6 +138,15 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
     sobrecarga progresiva; el usuario pasa una rutina estimada) y "Estudio" (materia, parcial,
     fecha, tema, detalle; se cargan desde los programas en PDF que pase el usuario) + herramientas
     del agente (anotar, progreso, qué toca hoy, qué entra, tomame examen).
+  - PLANILLA CREADA (23/10): Google Sheets "JARVIS" en el Drive del usuario, id
+    1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs. Pestañas: Rutina (Día | Grupo muscular |
+    Ejercicios | Series x repeticiones; Lunes..Domingo, vacía hasta que el usuario pase la rutina),
+    Registro (Fecha | Ejercicio | Peso (kg) | Series | Repeticiones | Notas), Materias (Materia |
+    Evaluación | Fecha | Días que faltan [fórmula con HOY()] | Notas: Análisis Matemático 3 parcial 1
+    05/11 8:00, Programación Concurrente y Paralela parcial 2 03/11 15:00, Inteligencia Artificial
+    sin fecha) y Temas (Materia | Evaluación | Tema | Detalle | Cómo vengo | Último repaso).
+    Se creó subiendo un .xlsx por Drive (no hay conector de Sheets para editar desde Claude); a
+    partir de ahora la edita JARVIS por n8n con la credencial de Google Sheets.
   - PLAN VIEJO (gimnasio y estudio con Data Tables; reemplazado por Google Sheets):
     - Tabla "rutina": día de la semana -> grupo muscular y ejercicios (la pasa el usuario).
     - Tabla "pesos": fecha, ejercicio, kilos, series, repeticiones. Herramientas del agente:
