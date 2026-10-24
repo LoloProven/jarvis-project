@@ -30,6 +30,7 @@ public:
     static void enterSleep();
     static bool isSleeping();
     static WakeReason sleepTick();         // duerme hasta 1 s; devuelve por qué se despertó
+    static uint32_t takeSleptMs();         // ms de sueño liviano real desde la última consulta
 
     // Batería (se lee del AXP2101 cada BATTERY_READ_MS desde updateBattery()).
     static void updateBattery();

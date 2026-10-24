@@ -10,6 +10,7 @@
 #include "step_counter.h"
 #include "alarm_manager.h"
 #include <esp_sleep.h>
+#include <esp_timer.h>
 #include <driver/gpio.h>
 
 XPowersPMU PowerManager::PMU;
@@ -111,6 +112,13 @@ void PowerManager::lowPowerTick() {
 // alarmas, y al instante si se toca la pantalla o se aprieta BOOT.
 // (Con el apagado total de 4 s no hay corriente y ninguna alarma puede sonar.)
 static const gpio_num_t BOOT_BUTTON = GPIO_NUM_0;
+static int64_t sleptUs = 0;                      // tiempo en sueño liviano desde la última consulta
+
+uint32_t PowerManager::takeSleptMs() {
+    uint32_t ms = sleptUs / 1000;
+    sleptUs = 0;
+    return ms;
+}
 
 void PowerManager::enterSleep() {
     if (sleeping) return;
@@ -148,7 +156,10 @@ PowerManager::WakeReason PowerManager::sleepTick() {
         gpio_wakeup_enable(BOOT_BUTTON, GPIO_INTR_LOW_LEVEL);             // botón BOOT
         esp_sleep_enable_gpio_wakeup();
         esp_sleep_enable_timer_wakeup(1000000);                        // 1 s
-        esp_light_sleep_start();
+        // Se mide cuánto duerme de verdad (para AJUSTES > BATERIA): si el chip no puede
+        // dormir, esp_light_sleep_start() vuelve enseguida con error.
+        int64_t t0 = esp_timer_get_time();
+        if (esp_light_sleep_start() == ESP_OK) sleptUs += esp_timer_get_time() - t0;
         gpio_wakeup_disable((gpio_num_t)TP_INT);
         gpio_wakeup_disable(BOOT_BUTTON);
     }

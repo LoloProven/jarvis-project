@@ -3,6 +3,7 @@
 #include <ESP_I2S.h>
 #include <Wire.h>
 #include "es8311.h"
+#include "i2c_lock.h"
 
 // Audio por el códec ES8311, igual que el ejemplo 08_ES8311 de Waveshare:
 // un solo bus I2S estándar (parlante y micrófono) y el códec configurado por I2C.
@@ -13,11 +14,14 @@
 int AudioManager::masterVolume = 10;
 bool AudioManager::isRecording = false;
 static I2SClass i2s;
-static bool audioReady = false;
+static bool audioReady = false;   // los chips están: se puede prender el audio
+static bool audioOn = false;      // bus I2S y chips prendidos ahora mismo
+static es8311_handle_t es = nullptr;
+static uint8_t micAddr = 0;
 
 static bool codecInit() {
     // Usa el I2C 0 (Wire), que ya inició PowerManager::init() en los pines 15/14.
-    es8311_handle_t es = es8311_create(0, ES8311_ADDR);
+    if (!es) es = es8311_create(0, ES8311_ADDR);   // una sola vez (reserva memoria)
     if (!es) return false;
     const es8311_clock_config_t clk = {
         .mclk_inverted = false,
@@ -47,11 +51,11 @@ static bool es7210Write(uint8_t addr, uint8_t reg, uint8_t val) {
 }
 
 static bool micInit() {
-    uint8_t addr = 0;
-    for (uint8_t a = 0x40; a <= 0x43 && !addr; a++) {       // según cómo estén A0/A1
+    for (uint8_t a = 0x40; a <= 0x43 && !micAddr; a++) {    // según cómo estén A0/A1
         Wire.beginTransmission(a);
-        if (Wire.endTransmission() == 0) addr = a;
+        if (Wire.endTransmission() == 0) micAddr = a;
     }
+    uint8_t addr = micAddr;
     if (!addr) return false;
     static const uint8_t SEQ[][2] = {
         {0x00, 0xFF}, {0x00, 0x32},                          // reset
@@ -70,30 +74,63 @@ static bool micInit() {
     for (auto& r : SEQ) {
         if (!es7210Write(addr, r[0], r[1])) return false;
     }
-    Serial.printf("[audio] microfono ES7210 listo (0x%02X)\n", addr);
     return true;
+}
+
+// --- AUDIO SOLO CUANDO SE USA ---
+// Antes el bus I2S (con sus relojes de varios MHz) y los dos chips quedaban prendidos siempre,
+// también en modo dormir, y el reloj gastaba ~50 %/h aun durmiendo. Ahora se prenden para
+// sonar o grabar y se apagan al terminar. Las secuencias de apagado son las de los drivers de
+// Espressif (esp-adf): ES8311 en suspensión; ES7210 con relojes, ADC, PGA y micrófonos apagados.
+static void audioPowerUp() {
+    if (audioOn || !audioReady) return;
+    i2s.setPins(I2S_BCLK, I2S_WS, I2S_DOUT, I2S_DIN, I2S_MCLK);
+    if (!i2s.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO, I2S_STD_SLOT_BOTH)) {
+        Serial.println("[audio] no se pudo iniciar I2S");
+        return;
+    }
+    I2CLock lock;                          // el I2C se comparte con la tarea de pasos
+    codecInit();                           // necesitan MCLK andando para arrancar
+    micInit();
+    audioOn = true;
+}
+
+static void audioPowerDown() {
+    if (!audioOn) return;
+    digitalWrite(AUDIO_PA_EN, LOW);
+    {
+        I2CLock lock;
+        static const uint8_t ES8311_OFF[][2] = {
+            {0x32, 0x00}, {0x17, 0x00}, {0x0E, 0xFF}, {0x12, 0x02}, {0x14, 0x00}, {0x0D, 0xFA},
+            {0x15, 0x00}, {0x37, 0x08}, {0x02, 0x10}, {0x00, 0x00}, {0x00, 0x1F}, {0x01, 0x30},
+            {0x01, 0x00}, {0x45, 0x00}, {0x0D, 0xFC}, {0x02, 0x00},
+        };
+        for (auto& r : ES8311_OFF) es7210Write(ES8311_ADDR, r[0], r[1]);
+        if (micAddr) {
+            static const uint8_t ES7210_OFF[][2] = {
+                {0x06, 0x07}, {0x01, 0x7F}, {0x4B, 0xFF}, {0x4C, 0xFF}, {0x40, 0x80},
+            };
+            for (auto& r : ES7210_OFF) es7210Write(micAddr, r[0], r[1]);
+        }
+    }
+    i2s.end();                             // sin MCLK ni BCLK
+    audioOn = false;
 }
 
 void AudioManager::init() {
     // Amplificador apagado mientras no suena nada (evita ruido de fondo).
     pinMode(AUDIO_PA_EN, OUTPUT);
     digitalWrite(AUDIO_PA_EN, LOW);
-
-    i2s.setPins(I2S_BCLK, I2S_WS, I2S_DOUT, I2S_DIN, I2S_MCLK);
-    if (!i2s.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO, I2S_STD_SLOT_BOTH)) {
-        Serial.println("[audio] no se pudo iniciar I2S");
-        return;
-    }
-    if (!codecInit()) {
-        Serial.println("[audio] no se pudo iniciar el ES8311");
-        return;
-    }
-    if (!micInit()) Serial.println("[audio] no se encontro el microfono (ES7210)");
     audioReady = true;
+    audioPowerUp();                        // se prende una vez para ver que estén los chips
+    if (!audioOn || !micAddr) Serial.println("[audio] falta el ES8311 o el ES7210");
+    else Serial.printf("[audio] listo (microfono ES7210 en 0x%02X)\n", micAddr);
+    audioPowerDown();
 }
 
 void AudioManager::playTone(int volume) {
     if (!audioReady) return;
+    audioPowerUp();                        // no hace nada si ya está prendido
     digitalWrite(AUDIO_PA_EN, HIGH);
 
     const int pcmLen = 512;              // 256 cuadros estéreo (L, R)
@@ -110,15 +147,18 @@ void AudioManager::playTone(int volume) {
 }
 
 void AudioManager::stopTone() {
-    if (!audioReady) return;
-    // Un poco de silencio para vaciar lo que quedó en el buffer y después apagar el amplificador.
+    if (!audioOn) return;
+    // Un poco de silencio para vaciar lo que quedó en el buffer y después apagar todo el audio.
     int16_t silence[512] = {0};
     for (int i = 0; i < 4; i++) i2s.write((const uint8_t*)silence, sizeof(silence));
-    digitalWrite(AUDIO_PA_EN, LOW);
+    audioPowerDown();
 }
 
-size_t AudioManager::record(int16_t* out, size_t maxSamples, bool (*keepGoing)()) {
+size_t AudioManager::record(int16_t* out, size_t maxSamples, bool (*keepGoing)(),
+                            volatile size_t* progress) {
     if (!audioReady) return 0;
+    audioPowerUp();
+    if (!audioOn) return 0;
     // El I2S trae estéreo y el micrófono va por un solo canal: tomando solo el izquierdo
     // llegaban puros ceros. Se guarda, de cada cuadro, la muestra más fuerte de las dos
     // (con un canal mudo es exactamente el otro). Mono, 16 bits, 16 kHz.
@@ -137,8 +177,10 @@ size_t AudioManager::record(int16_t* out, size_t maxSamples, bool (*keepGoing)()
             if (r) nonZeroR++;
             out[outSamples++] = (abs(l) >= abs(r)) ? l : r;
         }
+        if (progress) *progress = outSamples;
     }
     isRecording = false;
+    audioPowerDown();                      // mientras n8n piensa, el audio apagado
     Serial.printf("[audio] grabadas %u muestras (con sonido: izq %u, der %u)\n",
                   (unsigned)outSamples, (unsigned)nonZeroL, (unsigned)nonZeroR);
     return outSamples;
@@ -151,11 +193,12 @@ static int groupCount = 0;
 
 void AudioManager::beginPlayback() {
     groupCount = 0;
-    if (audioReady) digitalWrite(AUDIO_PA_EN, HIGH);
+    audioPowerUp();
+    if (audioOn) digitalWrite(AUDIO_PA_EN, HIGH);
 }
 
 void AudioManager::playPcm24k(const int16_t* in, size_t n) {
-    if (!audioReady) return;
+    if (!audioOn) return;
     int16_t out[256];                      // 128 cuadros estéreo
     size_t o = 0;
     float gain = masterVolume / 10.0f;

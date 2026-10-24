@@ -18,6 +18,8 @@ public:
         uint8_t pct;                       // porcentaje al cerrar el tramo
         uint8_t charging;                  // 1 si se cargó en algún momento del tramo
         uint8_t onMin, offMin, sleepMin, wifiMin;   // minutos en cada estado
+        uint16_t mv;                       // voltaje de la batería al cerrar el tramo
+        uint8_t asleepPct;                 // del tiempo en modo dormir, % que el chip durmió de verdad
     };
 
     static void init();                    // después de PowerManager::init()

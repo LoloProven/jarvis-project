@@ -12,8 +12,10 @@ Reloj con asistente de IA sobre Waveshare ESP32-S3-Touch-AMOLED-2.06.
 ## Para usar JARVIS (recordárselo SIEMPRE al usuario cuando hable de usarlo)
 1. PC prendida, con internet y sin suspenderse (Windows: Inicio/apagado y suspensión -> "Nunca").
 2. Doble clic en el acceso directo del escritorio "JARVIS (prender n8n y ngrok)" (= n8n-flujos\
-   iniciar-n8n.bat; escritorio en D:\Users\Lolo\Desktop): abre DOS ventanas que tienen que quedar abiertas,
-   "ngrok - JARVIS" (túnel) y la de n8n (lista cuando dice "Editor is now accessible").
+   iniciar-n8n.bat; escritorio en D:\Users\Lolo\Desktop): abre TRES ventanas que tienen que quedar
+   abiertas: "ngrok - JARVIS" (túnel), "voz - JARVIS" (minimizada, Piper) y la de n8n (lista
+   cuando dice "Editor is now accessible"). Cada vez que se reinicia n8n, JARVIS no responde
+   ~1 min: avisarle al usuario.
 3. El reloj con cualquier internet: WiFi de casa o hotspot del iPhone (datos móviles).
 Si en el reloj dice "n8n no responde" o "Error de n8n (404/502)", falta alguna de esas ventanas.
 n8n tarda en arrancar (una vez tardó ~9 min con la ventana negra; antes 1-2 min): mientras tanto
@@ -59,7 +61,24 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
   BOOT apretado (JARVIS_BUTTON, desde el dashboard, aun con la pantalla
   apagada) graba hasta 20 s en la PSRAM; src/jarvis.cpp manda un WAV a JARVIS_URL (config.h) con
   X-Perfil; la respuesta trae X-Pregunta y X-Respuesta (ASCII) y en el cuerpo la voz (PCM mono 16
-  bits 24 kHz), que se baja entera a la PSRAM y después suena. Demora total 5-8 s.
+  bits 24 kHz). VERSIÓN RÁPIDA (rama jarvis-gemini): netTask (core 0) abre TLS al apretar BOOT y
+  sube el WAV en HTTP chunked MIENTRAS se graba (WAV con largo 0xFFFFFFFF; "Preparar audio" en
+  n8n lo corrige); lee a mano la respuesta (encabezados y cuerpo, con largo o chunked) a la PSRAM;
+  el loop reproduce en paralelo con 0,4 s de colchón. Medido en casa: pregunta simple 4 s desde
+  que se suelta BOOT hasta que habla; con herramienta ~6,4 s. De n8n (~3,2 s), 1,7 s es la voz de
+  Windows (con Azure bajaría a ~0,5). El log USB imprime "[jarvis] tiempos: ...". Si falla la
+  conexión TLS imprime el error y reintenta una vez (pasó 1 vez, sin causa clara).
+  BOOT sin internet llama WiFiPortal::connectNow() (corta la espera creciente de hasta 5 min).
+  VOZ (elegida por el usuario): PIPER, voz es_ES-sharvard-medium, speaker 0 (hombre). Tomás de
+  Edge dejó de andar el 23/10 y Azure no aceptó sus tarjetas (descartado). n8n-flujos/
+  voz-servidor.mjs (127.0.0.1:5690, lo prende iniciar-n8n.bat en ventana minimizada "voz -
+  JARVIS") deja Piper cargado (--json-input) y devuelve PCM 24 kHz (Piper da 22 050, se
+  interpola) en ~0,3 s. n8n-flujos/voz.mjs (nodo "Voz"): servidor -> Piper en frío (~2 s) ->
+  voz-windows.ps1. Piper NO está en git (n8n-flujos/voz-piper/, gitignored): para reinstalar,
+  bajar piper_windows_amd64.zip de github.com/rhasspy/piper/releases (2023.11.14-2) y
+  descomprimir en voz-piper/piper/, y es_ES-sharvard-medium.onnx + .onnx.json de
+  huggingface.co/rhasspy/piper-voices (es/es_ES/sharvard/medium) en voz-piper/.
+  Probado con hotspot (build TEST_ONLY_HOTSPOT): anda.
   - TÚNEL ngrok: JARVIS_URL = https://excretory-copier-cottage.ngrok-free.dev/webhook/
     jarvis (dominio fijo de la cuenta gratis; ngrok 3.39 instalado con winget, authtoken ya en
     %LOCALAPPDATA%\ngrok\ngrok.yml). Solo HTTPS (HTTP redirige): NetworkClientSecure con
@@ -102,6 +121,13 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
     toda herramienta tiene que tener al menos un $fromAI. Igual falla de vez en cuando con cualquier
     herramienta: el nodo JARVIS tiene retryOnFail (3 intentos). Cronometro: "CRONO INICIAR|PAUSAR|RESET".
     La voz se baja entera a la PSRAM antes de sonar (reproducirla mientras llegaba por el túnel se trababa).
+  - MODELO (rama jarvis-gemini): Groq gratis tiene 8K tokens/min para TODOS sus modelos y JARVIS
+    lo pasaba ("too many requests", 4 de 5 alarmas fallaron). Ahora: principal gpt-oss-20b
+    (credencial "OpenAI account", rápido: n8n tarda 3-6 s en total) + needsFallback con
+    "Modelo de respaldo" = Gemini models/gemini-3.5-flash-lite (2.5 ya no existe para usuarios
+    nuevos; lento, 5-15 s, pero no falla). Sin retryOnFail (gastaba más tokens). Memoria 4,
+    instrucciones más cortas, avisa que el reloj guarda máx. 5 alarmas. Llama 4 Scout ya no está en Groq.
+    Medir tiempos por paso: D:/temp/tiempos.cjs (lee runData con flatted desde node_modules).
   - PLAN PARA MAÑANA (gimnasio y estudio, acordado; usar las Data Tables propias de n8n, sin OAuth):
     - Tabla "rutina": día de la semana -> grupo muscular y ejercicios (la pasa el usuario).
     - Tabla "pesos": fecha, ejercicio, kilos, series, repeticiones. Herramientas del agente:
@@ -118,6 +144,15 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
     progreso y que diga qué día toca: tablas de datos de n8n o Google Sheets), ESTUDIO (cargar
     programas/temas de parciales para repasar), voz propia del usuario (clonación). No se puede
     leer las charlas del usuario con Claude.
+- BATERÍA, HALLAZGO (foto del registro, 23/10): en modo dormir gastaba ~50 %/h, igual que
+  despierto (93 % -> 3 % en ~2 h; el "12,3 %/h" de arriba estaba mal por mezclar tramos enchufado
+  y lleno). O sea: algo queda prendido aunque el chip duerma. Rama jarvis-gemini: el audio (bus
+  I2S con MCLK + ES8311 + ES7210, antes siempre prendidos) se prende solo para sonar/grabar
+  (audioPowerUp/audioPowerDown en audio_manager.cpp, secuencias de apagado de esp-adf); el
+  registro ahora anota mV y S% (% del tiempo en modo dormir que el chip durmió de verdad,
+  medido alrededor de esp_light_sleep_start) y "C" = enchufado (isVbusIn) no cuenta. FALTA:
+  prueba de 30-60 min en modo dormir sin cargar y mirar el gasto; si sigue alto, sospechar del
+  panel AMOLED/touch/IMU o de salidas del AXP2101 (no hay esquema; el panel ya hace SLPIN).
 - Pendiente: BATERÍA (llegó a 0 % en una salida de 1 h). Hecho (ya en main): registro BATERIA,
   WiFi con espera creciente y apagado al minuto, pantalla 15 s, dormir a los 10 min. Falta: leer
   el registro tras un día de uso y, según dónde gaste, seguir: Bluetooth solo cuando se usa

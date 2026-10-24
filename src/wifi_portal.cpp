@@ -16,6 +16,7 @@ static SemaphoreHandle_t wifiLock = NULL;      // wifiMulti se usa desde el loop
 static volatile bool portalActive = false;     // con el portal abierto no se buscan redes
 static volatile bool suspended = false;        // WiFi apagado para ahorrar batería
 static volatile bool kick = false;             // pide reconectar ya, sin esperar
+static volatile bool resetBackoff = false;     // y volver a la espera corta (connectNow)
 static bool handlersRegistered = false;
 
 static const uint32_t CONNECT_TIMEOUT_MS  = 8000;    // por intento (incluye buscar redes)
@@ -144,6 +145,7 @@ static void wifiKeeperTask(void*) {
         // Espera en tramos cortos para reconectar enseguida si resume() lo pide.
         if (WiFi.status() == WL_CONNECTED) wait = RECONNECT_MIN_MS;
         for (uint32_t t = 0; t < wait && !kick; t += 500) {
+            if (resetBackoff) { resetBackoff = false; wait = RECONNECT_MIN_MS; }
             vTaskDelay(pdMS_TO_TICKS(500));
         }
         kick = false;
@@ -255,6 +257,15 @@ void WiFiPortal::resume() {
     if (!suspended) return;
     WiFi.mode(WIFI_STA);
     suspended = false;
+    kick = true;
+}
+
+// Sin red conocida la tarea espera cada vez más entre intentos (hasta 5 min). Si se aprieta
+// BOOT en ese rato (p. ej. recién salido de casa, con el hotspot ya prendido), JARVIS no puede
+// esperar: se pide un intento ya y se vuelve a la espera corta.
+void WiFiPortal::connectNow() {
+    if (suspended) resume();
+    resetBackoff = true;
     kick = true;
 }
 

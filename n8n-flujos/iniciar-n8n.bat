@@ -11,7 +11,10 @@ if not exist "%PROYECTO%\node_modules\.bin\n8n.cmd" (
     exit /b 1
 )
 cd /d "%PROYECTO%"
-start "ngrok - JARVIS" ngrok http 5678 --url=https://excretory-copier-cottage.ngrok-free.dev
+rem El tunel se abre solo si no esta abierto ya (asi se puede reabrir solo n8n).
+tasklist /fi "imagename eq ngrok.exe" | find /i "ngrok.exe" >nul || start "ngrok - JARVIS" ngrok http 5678 --url=https://excretory-copier-cottage.ngrok-free.dev
+rem La voz (Piper siempre cargado, en una ventana minimizada), si no esta prendida ya.
+netstat -an | find "127.0.0.1:5690" >nul || start "voz - JARVIS" /min node "%PROYECTO%\n8n-flujos\voz-servidor.mjs"
 set N8N_USER_FOLDER=%PROYECTO%\n8n-servidor\.n8n
 set NODES_EXCLUDE=["n8n-nodes-base.localFileTrigger"]
 rem Que no consulte internet al arrancar (novedades, plantillas, estadisticas): arranca mas rapido.

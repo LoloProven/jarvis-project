@@ -21,3 +21,5 @@ referencia-waveshare/
 lib/lvgl/
 lib/Arduino_GFX/
 lib/Arduino_DriveBus/
+# Piper (programa y voces: pesan mucho, se bajan con las instrucciones de CLAUDE.md)
+n8n-flujos/voz-piper/
