@@ -128,7 +128,17 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
     nuevos; lento, 5-15 s, pero no falla). Sin retryOnFail (gastaba más tokens). Memoria 4,
     instrucciones más cortas, avisa que el reloj guarda máx. 5 alarmas. Llama 4 Scout ya no está en Groq.
     Medir tiempos por paso: D:/temp/tiempos.cjs (lee runData con flatted desde node_modules).
-  - PLAN PARA MAÑANA (gimnasio y estudio, acordado; usar las Data Tables propias de n8n, sin OAuth):
+  - ESTADO 23/10 noche: PR #9 mergeado (todo en main, sin ramas). Pendientes: (1) el usuario dice
+    que el reloj "anda un poquito trabado" en el FUNCIONAMIENTO GENERAL (no la voz): preguntar qué
+    se traba (toques, pestañas, hora) y mirarlo con el log; (2) foto de BATERIA tras una noche
+    dormido (mirar S% y mV); (3) gimnasio y estudio con GOOGLE SHEETS (decidido por el usuario, en
+    lugar de Data Tables): una autorización de Google (credencial Google Sheets OAuth2 en n8n, con
+    el mismo cliente OAuth que la de Calendar, habilitando la API de Sheets en Google Cloud; la hace
+    el usuario en el navegador). Planillas: "Gimnasio" (rutina por día + registro de pesos para
+    sobrecarga progresiva; el usuario pasa una rutina estimada) y "Estudio" (materia, parcial,
+    fecha, tema, detalle; se cargan desde los programas en PDF que pase el usuario) + herramientas
+    del agente (anotar, progreso, qué toca hoy, qué entra, tomame examen).
+  - PLAN VIEJO (gimnasio y estudio con Data Tables; reemplazado por Google Sheets):
     - Tabla "rutina": día de la semana -> grupo muscular y ejercicios (la pasa el usuario).
     - Tabla "pesos": fecha, ejercicio, kilos, series, repeticiones. Herramientas del agente:
       anotar ("hoy hice banca 60 kg 4x10"), ver progreso ("¿cómo vengo en banca?": último vs. hace
