@@ -13,7 +13,7 @@ public:
     static void drawHeaderClockOnly();
     static void refreshChronoDigits();   // solo si se ve la pestaña CRONO
     static void refreshNetStatus(bool wifiChanged);   // solo si se ve el dashboard
-    static void refreshBottomBar();                   // pasos y batería; solo si se ve el dashboard
+    static void refreshLiveData();                    // batería y, en INICIO, pasos, km, clima y alarma
     static void refreshMusicTab();                    // si cambió la conexión Bluetooth
     static void musicTick();                          // vuelve el color del botón que titiló
     static void drawWifiPortalScreen();
@@ -32,14 +32,16 @@ public:
     static bool ringScreen(const char* title, const char* timeText, bool allowSnooze);
     static void handleTouch(int16_t x, int16_t y);
 
-    static Arduino_GFX* getGFX();
+    static Arduino_GFX* getGFX();        // la pantalla (prender/apagar, brillo)
+    static void flush();                 // manda a la pantalla lo que cambió en la copia
     static ScreenState getCurrentScreen();
     static void setScreenState(ScreenState state);
     static String getFormattedTime();
 
 private:
     static Arduino_DataBus *bus;
-    static Arduino_GFX *gfx;
+    static Arduino_GFX *panel;   // la pantalla de verdad
+    static Arduino_GFX *gfx;     // copia en la PSRAM donde se dibuja todo (ver flush)
     static ScreenState currentScreen;
     static WidgetTab currentTab;
     static int activeProfile;
@@ -50,8 +52,6 @@ private:
     static void drawAvatar(int x, int y, uint16_t color, const char* name);
     static void drawChronoDigits();
     static void drawJarvisTab();
-    static void drawNetBox();
-    static void drawBottomBar();
     static void handleMusicButton(int index);
 };
 

@@ -25,22 +25,9 @@ El .bat usa la ruta completa del proyecto (el usuario lo movió al escritorio y 
 copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla igual a la del repo.
 
 ## PENDIENTES (lista ordenada, actualizada 28/10)
-1. INTERFAZ NUEVA (lo próximo). El usuario ELIGIÓ el estilo "B · Deportivo" de la maqueta
-   https://claude.ai/artifact/MQgD5vN2F1FXvBWUrtpyGj (archivo project/Deportivo.dc.html; también
-   hay A pastel y C carbón, descartados). Estilo B: fondo NEGRO puro (#000000, ahorra batería en
-   AMOLED); texto blanco #FFFFFF; etiquetas en gris #A6A6A6 y MAYÚSCULAS con espaciado; un solo
-   color de acento lima #C6F432 (alternativas ofrecidas: naranja #FF7A1A, celeste #33D1FF, rosa
-   #FF4D8D); bordes/barras vacías #262626; fuente condensada (Barlow Condensed en la maqueta:
-   convertir a GFXfont para Arduino_GFX, con tildes; varios tamaños). Pantalla de INICIO nueva:
-   arriba "LOLO" y batería %; hora gigante (~120 px) centrada; debajo la fecha "MAR 28 OCT" en
-   acento; fila "PASOS 8.432 / 10.000" con barra de progreso (acento sobre #262626, meta 10.000);
-   dos tarjetas con borde #262626: DISTANCIA (km) y CLIMA (°C + estado, de Open-Meteo);
-   abajo 4 botones con íconos (Alarmas, Crono, Música, JARVIS), el de la sección activa relleno
-   en acento con ícono negro, los otros con borde #262626. Las pestañas pasan de arriba (texto) a
-   abajo (íconos); el resto de las pantallas (ALARMAS, CRONO, MÚSICA, JARVIS, AJUSTES, avisos)
-   se rediseñan con el mismo estilo. Mantener las esquinas redondeadas (SAFE_MARGIN) y texto
-   legible (mínimo ~16 px). El clima en el reloj necesita pedirlo (directo a Open-Meteo por
-   HTTPS o vía n8n) cada tanto, solo con WiFi.
+1. INTERFAZ NUEVA: HECHA y probada (rama interfaz-deportiva, 28/10; el usuario dice "se ve bien").
+   Estilo "B · Deportivo" de la maqueta https://claude.ai/artifact/MQgD5vN2F1FXvBWUrtpyGj (colores
+   en include/palette.h; acentos alternativos anotados ahí). Ideas sueltas: ajustar íconos si hace falta.
 2. Cronómetro y sesión de pasos que sobrevivan a un apagado (PWR 4 s) o reinicio: en la corrida del
    27/10 se apagó el reloj sin querer y se perdió todo. Guardar inicio/acumulado en NVS o RTC.
 3. BUG: BOOT a veces no responde (ver "BUG ABIERTO" abajo; diagnóstico [boot]/[vivo] en main.cpp).
@@ -55,11 +42,14 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
    voz propia del usuario. Tamaño de la respuesta de JARVIS y demora ya mejorados.
 
 ## Estado (todo probado en el reloj)
-- Pantalla con paleta pastel (include/palette.h), encabezado con nombre, "Conectado/Sin conexion" y hora.
-- Pestañas: ALARMAS (lista de alarmas diarias en NVS + botón "+ NUEVA", que abre la carga:
-  TAB_ADD_ALARM es una sub-vista de ALARMAS), CRONO (selector CRONOMETRO | TEMPORIZADOR, + pasos,
-  km y velocidad), MUSICA (Spotify por Bluetooth + nombre de la canción), JARVIS (asistente).
-  Barra inferior: batería y Salir.
+- Pantalla estilo deportivo (include/palette.h: negro, blanco, gris y acento lima; letra Barlow
+  Condensed). Al entrar a un perfil: INICIO (hora gigante, fecha, pasos con barra hacia 10.000,
+  DISTANCIA, CLIMA de Open-Meteo por HTTP cada 30 min con WiFi (src/weather.cpp) y PRÓXIMA ALARMA).
+  Abajo 4 botones con íconos: ALARMAS (lista con interruptor y borrar + "NUEVA ALARMA", que abre
+  TAB_ADD_ALARM), CRONO (CRONÓMETRO | TEMPORIZADOR + sesión de pasos, km y velocidad), MÚSICA
+  (Spotify por Bluetooth + canción), JARVIS. Volver a INICIO: tocar de nuevo el botón activo o tocar
+  arriba. Salir a perfiles: en INICIO tocar el nombre (arriba a la izquierda). Arriba: nombre,
+  puntito de conexión (lima/rojo) y batería; fuera de INICIO también la hora.
 - Menú de perfiles: botón AJUSTES (brillo, volumen de la alarma, configurar WiFi; guardados en NVS).
 - Alarma y temporizador suenan con DisplayUI::ringScreen(); la alarma permite POSPONER 5 min.
 - Levantar la muñeca con la pantalla apagada (no en modo dormir): hora grande en blanco 5 s
@@ -260,6 +250,12 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
 - Esquinas redondeadas: tapan ~50 px a cada lado arriba y abajo; usar SAFE_MARGIN_X/TOP (config.h).
   Texto tamaño 1 es ilegible en esta pantalla: mínimo tamaño 2. La letra no tiene tildes ni ñ.
 - Redibujar solo lo que cambia (texto con fondo, sin borrar antes) o la pantalla parpadea.
+- El CO5300 solo dibuja bien ventanas con columna/fila de inicio PAR y ancho/alto pares (Waveshare usa
+  un "rounder" en LVGL); si no, letras e íconos salen deformados. Por eso display_ui dibuja todo en una
+  copia en la PSRAM (TrackedCanvas, DisplayUI::gfx) y DisplayUI::flush() manda los renglones cambiados de
+  a pares (lo llama el loop al empezar; donde el loop queda frenado, llamarlo a mano). getGFX() = el panel.
+- Letra: Barlow Condensed suavizada (src/aa_text.*, include/fonts/, generada con tools/fontgen.py y
+  freetype-py en D:\fontgen-venv). Textos en UTF-8 con tildes. La tabla de BATERIA usa la letra vieja.
 - Bluetooth: usar NimBLE-Arduino (h2zero), no la librería BLE del core: con NimBLE descarta la
   segunda característica HID 0x2A4D (handle 65535 y cuelgue al notificar). iOS necesita teclado +
   multimedia y una pausa de ~30 ms entre apretar y soltar la tecla. Al cambiar el descriptor HID hay
