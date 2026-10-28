@@ -25,10 +25,22 @@ El .bat usa la ruta completa del proyecto (el usuario lo movió al escritorio y 
 copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla igual a la del repo.
 
 ## PENDIENTES (lista ordenada, actualizada 28/10)
-1. INTERFAZ MÁS LINDA (pedido del usuario 28/10, lo próximo): "que quede más linda, no tan
-   oscura". Ojo: en AMOLED el negro es un píxel apagado; un fondo claro gasta mucho más batería.
-   Idea propuesta: mantener fondo oscuro pero con más color/tarjetas, y fuentes suavizadas de
-   Arduino_GFX (GFXfont, con tildes) en vez de la letra de píxeles. Mostrar maqueta antes de tocar.
+1. INTERFAZ NUEVA (lo próximo). El usuario ELIGIÓ el estilo "B · Deportivo" de la maqueta
+   https://claude.ai/artifact/MQgD5vN2F1FXvBWUrtpyGj (archivo project/Deportivo.dc.html; también
+   hay A pastel y C carbón, descartados). Estilo B: fondo NEGRO puro (#000000, ahorra batería en
+   AMOLED); texto blanco #FFFFFF; etiquetas en gris #A6A6A6 y MAYÚSCULAS con espaciado; un solo
+   color de acento lima #C6F432 (alternativas ofrecidas: naranja #FF7A1A, celeste #33D1FF, rosa
+   #FF4D8D); bordes/barras vacías #262626; fuente condensada (Barlow Condensed en la maqueta:
+   convertir a GFXfont para Arduino_GFX, con tildes; varios tamaños). Pantalla de INICIO nueva:
+   arriba "LOLO" y batería %; hora gigante (~120 px) centrada; debajo la fecha "MAR 28 OCT" en
+   acento; fila "PASOS 8.432 / 10.000" con barra de progreso (acento sobre #262626, meta 10.000);
+   dos tarjetas con borde #262626: DISTANCIA (km) y CLIMA (°C + estado, de Open-Meteo);
+   abajo 4 botones con íconos (Alarmas, Crono, Música, JARVIS), el de la sección activa relleno
+   en acento con ícono negro, los otros con borde #262626. Las pestañas pasan de arriba (texto) a
+   abajo (íconos); el resto de las pantallas (ALARMAS, CRONO, MÚSICA, JARVIS, AJUSTES, avisos)
+   se rediseñan con el mismo estilo. Mantener las esquinas redondeadas (SAFE_MARGIN) y texto
+   legible (mínimo ~16 px). El clima en el reloj necesita pedirlo (directo a Open-Meteo por
+   HTTPS o vía n8n) cada tanto, solo con WiFi.
 2. Cronómetro y sesión de pasos que sobrevivan a un apagado (PWR 4 s) o reinicio: en la corrida del
    27/10 se apagó el reloj sin querer y se perdió todo. Guardar inicio/acumulado en NVS o RTC.
 3. BUG: BOOT a veces no responde (ver "BUG ABIERTO" abajo; diagnóstico [boot]/[vivo] en main.cpp).
