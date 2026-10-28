@@ -24,6 +24,24 @@ consultas a internet de n8n al arrancar (diagnósticos, novedades, plantillas): 
 El .bat usa la ruta completa del proyecto (el usuario lo movió al escritorio y se rompía); la
 copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla igual a la del repo.
 
+## PENDIENTES (lista ordenada, actualizada 28/10)
+1. INTERFAZ MÁS LINDA (pedido del usuario 28/10, lo próximo): "que quede más linda, no tan
+   oscura". Ojo: en AMOLED el negro es un píxel apagado; un fondo claro gasta mucho más batería.
+   Idea propuesta: mantener fondo oscuro pero con más color/tarjetas, y fuentes suavizadas de
+   Arduino_GFX (GFXfont, con tildes) en vez de la letra de píxeles. Mostrar maqueta antes de tocar.
+2. Cronómetro y sesión de pasos que sobrevivan a un apagado (PWR 4 s) o reinicio: en la corrida del
+   27/10 se apagó el reloj sin querer y se perdió todo. Guardar inicio/acumulado en NVS o RTC.
+3. BUG: BOOT a veces no responde (ver "BUG ABIERTO" abajo; diagnóstico [boot]/[vivo] en main.cpp).
+   Truco para el usuario mientras tanto: reiniciar (PWR 4 s y PWR) y entrar al perfil.
+4. Gimnasio y estudio con Google Sheets (planilla "JARVIS" ya creada, ver abajo): falta la
+   credencial de Google Sheets en n8n (la hace el usuario), su rutina, los programas de Análisis 3,
+   Programación Concurrente y Paralela e Inteligencia Artificial y la fecha del parcial de IA.
+5. Batería: el usuario dice (28/10) que mejoró mucho; falta una foto de BATERIA con S% y mV.
+6. Pasos y km contra Strava (una corrida/caminata con la Sesion del CRONO).
+7. n8n tarda en arrancar (8-11 min con la PC cargada): investigar si sigue lento.
+8. Ideas: recordatorios (Google Tasks), resumen del día al abrir JARVIS, leer mails (Gmail),
+   voz propia del usuario. Tamaño de la respuesta de JARVIS y demora ya mejorados.
+
 ## Estado (todo probado en el reloj)
 - Pantalla con paleta pastel (include/palette.h), encabezado con nombre, "Conectado/Sin conexion" y hora.
 - Pestañas: ALARMAS (lista de alarmas diarias en NVS + botón "+ NUEVA", que abre la carga:
