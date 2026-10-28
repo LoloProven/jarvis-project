@@ -5,26 +5,23 @@
 #include "audio_manager.h"
 #include "wifi_portal.h"
 #include "palette.h"
+#include "aa_text.h"
 #include "time_sync.h"
 #include "net_status.h"
 #include "step_counter.h"
 #include "media_remote.h"
 #include "settings.h"
 #include "battery_log.h"
+#include "weather.h"
 #include "jarvis.h"
-
-static const int TAB_W = 88;   // 4 pestañas de 88 px
-// Pestaña ALARMAS: filas de la lista (hasta MAX_ALARMS) y el botón "+ NUEVA" debajo.
-static const int ALARM_ROW_Y = 155, ALARM_ROW_STEP = 42, ALARM_ROW_H = 36;
-static const int NEW_ALARM_X = 130, NEW_ALARM_Y = 366, NEW_ALARM_W = 150, NEW_ALARM_H = 36;
 #include <WiFi.h>
 
+// Estilo "B · Deportivo" (ver palette.h): fondo negro, texto blanco, etiquetas grises en
+// mayúsculas, un solo acento lima y letra Barlow Condensed (aa_text.h).
+using AAText::CENTER;
+using AAText::RIGHT;
+
 // --- CORREGIDO: inicialización validada contra el ejemplo oficial de Waveshare ---
-// OJO: estos nombres de pines (LCD_CS, LCD_SCLK, LCD_SDIO0-3, LCD_RESET) tienen
-// que venir de pin_config.h (el que copiaste a include/). Si tu config.h ya
-// definía LCD_RST / LCD_D0-D3 con otro nombre, puede haber conflicto de doble
-// definición al compilar -- en ese caso, borrá esas definiciones viejas de
-// config.h y dejá que pin_config.h sea la única fuente de verdad para pines.
 Arduino_DataBus *DisplayUI::bus = new Arduino_ESP32QSPI(
     LCD_CS    /* CS */,
     LCD_SCLK  /* SCK */,
@@ -46,40 +43,212 @@ Arduino_GFX *DisplayUI::gfx = new Arduino_CO5300(
 );
 
 ScreenState DisplayUI::currentScreen = SCREEN_PROFILES;
-WidgetTab DisplayUI::currentTab = TAB_AGENDA;
+WidgetTab DisplayUI::currentTab = TAB_HOME;
 int DisplayUI::activeProfile = -1;
 int DisplayUI::tempHour = 18;
 int DisplayUI::tempMinute = 0;
 unsigned long DisplayUI::lastClockUpdate = 0;
 
-// --- ENCABEZADO DEL DASHBOARD (franja de 50 px, todo centrado en y=32) ---
-static const int HEADER_H     = 50;
-static const int CLOCK_W      = 5 * 18;                                  // "HH:MM" con setTextSize(3)
-static const int CLOCK_X      = LCD_WIDTH - SAFE_MARGIN_X - CLOCK_W;     // 265
-static const int CLOCK_Y      = SAFE_MARGIN_TOP;                         // 20..44
-static const int NAME_X       = SAFE_MARGIN_X;
-static const int NAME_Y       = SAFE_MARGIN_TOP + 4;                     // 24..40
-static const int WIFI_BOX_X   = 119;                                     // después de un nombre de 5 letras (termina en 115)
-static const int WIFI_BOX_W   = CLOCK_X - 4 - WIFI_BOX_X;                // 142 px, termina antes del fondo de la hora
-static const int WIFI_BOX_Y   = SAFE_MARGIN_TOP - 1;
-static const int WIFI_BOX_H   = 26;
+// --- MARCO COMÚN ---
+// Contenido entre x 40 y 370. Arriba (y 26) el nombre y la batería, lejos de las esquinas
+// redondeadas; abajo los 4 botones con íconos de las secciones.
+static const int CX = LCD_WIDTH / 2;
+static const int CL = 40, CR = 370, CW = CR - CL;
+static const int HDR_Y = 26;                       // renglón de FONT_S del encabezado
+static const int HDR_TIME_Y = HDR_Y + 17 - 29;     // la hora (FONT_L) en la misma línea de base
+static const int HDR_H = 60;                       // tocar acá arriba: volver a INICIO
+static const int NAV_Y = 420, NAV_H = 48, NAV_W = 72, NAV_GAP = 8;
+static const int NAV_X0 = (LCD_WIDTH - (4 * NAV_W + 3 * NAV_GAP)) / 2;
+static const int CONTENT_Y = 66;                   // primer renglón debajo del encabezado
 
 static Profile profiles[4] = {
-    {"Lolo",   PAL_CELESTE,  35,  30, 150, 150},
-    {"Delfi",  PAL_ROSA,    225,  30, 150, 150},
-    {"Fede",   PAL_MENTA,    35, 210, 150, 150},
-    {"Lucia",  PAL_LILA,    225, 210, 150, 150}
+    {"Lolo",  PAL_ACENTO,  58,  62, 140, 140},
+    {"Delfi", PAL_ACENTO, 212,  62, 140, 140},
+    {"Fede",  PAL_ACENTO,  58, 216, 140, 140},
+    {"Lucia", PAL_ACENTO, 212, 216, 140, 140}
 };
+static const int PROF_SET_X = 80, PROF_SET_Y = 380, PROF_SET_W = 250, PROF_SET_H = 56;
 
-static void drawBattery(Arduino_GFX* g, int x, int y);   // definida junto a la barra inferior
+static const char* DAYS[7]    = { "DOM", "LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB" };
+static const char* MONTHS[12] = { "ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
+                                  "JUL", "AGO", "SEP", "OCT", "NOV", "DIC" };
 
-// Pestaña del dashboard: activa en acento con texto oscuro, inactiva en tarjeta con texto claro.
-static void drawTab(Arduino_GFX* g, int x, int w, int textX, const char* label, bool active) {
-    g->fillRect(x, 65, w, 38, active ? PAL_ACENTO : PAL_TARJETA);
-    g->setTextColor(active ? PAL_TEXTO : PAL_TEXTO_CLARO);
-    g->setTextSize(2);
-    g->setCursor(textX, 76);
-    g->print(label);
+// --- AYUDAS DE DIBUJO ---
+
+// Borde de 2 px (como en la maqueta) sobre fondo negro.
+static void outlineBox(Arduino_GFX* g, int x, int y, int w, int h, int r, uint16_t color) {
+    g->fillRoundRect(x, y, w, h, r, PAL_FONDO);
+    g->drawRoundRect(x, y, w, h, r, color);
+    g->drawRoundRect(x + 1, y + 1, w - 2, h - 2, r - 1, color);
+}
+
+// Borde de arriba del renglón para que las mayúsculas queden centradas en una caja de alto h.
+static int textTopFor(const AAFont& f, int y, int h) {
+    return y + h / 2 - f.ascent * 13 / 20;
+}
+
+// Botón: relleno en acento con texto negro, o con borde gris y texto blanco.
+static void button(Arduino_GFX* g, int x, int y, int w, int h, const char* label, const AAFont& f, bool filled,
+                   uint16_t fill = PAL_ACENTO, uint16_t text = PAL_FONDO) {
+    uint16_t bg = filled ? fill : PAL_FONDO;
+    if (filled) g->fillRoundRect(x, y, w, h, 14, fill);
+    else outlineBox(g, x, y, w, h, 14, PAL_BORDE);
+    // El renglón se pinta con fondo: que no tape el borde de 2 px.
+    int ty = textTopFor(f, y, h);
+    if (ty + f.height > y + h - 3) ty = y + h - 3 - f.height;
+    if (ty < y + 3) ty = y + 3;
+    AAText::drawCentered(g, f, x + w / 2, ty, label, filled ? text : PAL_BLANCO, bg);
+}
+
+// Línea gruesa (para los íconos y la cruz de borrar).
+static void thickLine(Arduino_GFX* g, int x0, int y0, int x1, int y1, uint16_t c) {
+    for (int dx = -1; dx <= 1; dx++)
+        for (int dy = -1; dy <= 1; dy++) g->drawLine(x0 + dx, y0 + dy, x1 + dx, y1 + dy, c);
+}
+
+static void ring(Arduino_GFX* g, int cx, int cy, int r, int t, uint16_t c, uint16_t bg) {
+    g->fillCircle(cx, cy, r, c);
+    g->fillCircle(cx, cy, r - t, bg);
+}
+
+// "8432" -> "8.432"
+static void thousands(char* buf, size_t len, unsigned long n) {
+    if (n >= 1000000) snprintf(buf, len, "%lu.%03lu.%03lu", n / 1000000, (n / 1000) % 1000, n % 1000);
+    else if (n >= 1000) snprintf(buf, len, "%lu.%03lu", n / 1000, n % 1000);
+    else snprintf(buf, len, "%lu", n);
+}
+
+// "6,10 km" (coma decimal; con 10 km o más, un solo decimal).
+static void kmText(char* buf, size_t len, float km) {
+    snprintf(buf, len, km >= 10 ? "%.1f km" : "%.2f km", km);
+    for (char* p = buf; *p; p++) if (*p == '.') *p = ',';
+}
+
+// --- ÍCONOS DE LOS BOTONES DE ABAJO (unos 26 px, centrados en cx, cy) ---
+static void drawNavIcon(Arduino_GFX* g, int i, int cx, int cy, uint16_t c, uint16_t bg) {
+    switch (i) {
+        case 0:   // ALARMAS: reloj
+            ring(g, cx, cy + 1, 12, 3, c, bg);
+            g->fillRect(cx - 1, cy - 6, 3, 8, c);
+            thickLine(g, cx, cy + 1, cx + 4, cy + 5, c);
+            thickLine(g, cx - 13, cy - 8, cx - 9, cy - 12, c);
+            thickLine(g, cx + 13, cy - 8, cx + 9, cy - 12, c);
+            break;
+        case 1:   // CRONO: cronómetro
+            ring(g, cx, cy + 2, 11, 3, c, bg);
+            g->fillRect(cx - 5, cy - 14, 11, 3, c);
+            g->fillRect(cx - 1, cy - 12, 3, 4, c);
+            g->fillRect(cx - 1, cy - 4, 3, 7, c);
+            break;
+        case 2:   // MÚSICA: dos notas
+            g->fillCircle(cx - 7, cy + 8, 5, c);
+            g->fillCircle(cx + 8, cy + 6, 5, c);
+            g->fillRect(cx - 4, cy - 10, 3, 18, c);
+            g->fillRect(cx + 11, cy - 12, 3, 18, c);
+            for (int k = 0; k < 4; k++) g->drawLine(cx - 4, cy - 10 + k, cx + 13, cy - 13 + k, c);
+            break;
+        case 3:   // JARVIS: micrófono
+            ring(g, cx, cy - 1, 10, 3, c, bg);
+            g->fillRect(cx - 11, cy - 13, 23, 12, bg);       // solo la mitad de abajo del arco
+            g->fillRoundRect(cx - 5, cy - 14, 11, 18, 5, c);
+            g->fillRect(cx - 1, cy + 9, 3, 5, c);
+            g->fillRect(cx - 6, cy + 13, 13, 3, c);
+            break;
+    }
+}
+
+// Qué botón de abajo corresponde a la pestaña (-1 = INICIO, ninguno resaltado).
+static int navIndex(WidgetTab t) {
+    switch (t) {
+        case TAB_AGENDA: case TAB_ADD_ALARM: return 0;
+        case TAB_CHRONO: return 1;
+        case TAB_MUSIC:  return 2;
+        case TAB_JARVIS: return 3;
+        default:         return -1;
+    }
+}
+
+static void drawNav(Arduino_GFX* g, WidgetTab tab) {
+    int active = navIndex(tab);
+    for (int i = 0; i < 4; i++) {
+        int x = NAV_X0 + i * (NAV_W + NAV_GAP);
+        bool on = (i == active);
+        if (on) g->fillRoundRect(x, NAV_Y, NAV_W, NAV_H, 14, PAL_ACENTO);
+        else outlineBox(g, x, NAV_Y, NAV_W, NAV_H, 14, PAL_BORDE);
+        uint16_t bg = on ? PAL_ACENTO : PAL_FONDO;
+        drawNavIcon(g, i, x + NAV_W / 2, NAV_Y + NAV_H / 2, on ? PAL_FONDO : PAL_BLANCO, bg);
+    }
+}
+
+// --- BATERÍA Y CONEXIÓN (encabezado) ---
+
+// Gris normal, lima cargando, rojo con menos de 20 %.
+static uint16_t batteryColor() {
+    int pct = PowerManager::batteryPercent();
+    if (PowerManager::isCharging()) return PAL_ACENTO;
+    if (pct >= 0 && pct < 20) return PAL_ALERTA;
+    return PAL_GRIS;
+}
+
+// "85%", "85%+" cargando, "--" sin batería.
+static void batteryText(char* buf, size_t len) {
+    int pct = PowerManager::batteryPercent();
+    if (pct < 0) snprintf(buf, len, "--");
+    else snprintf(buf, len, "%d%%%s", pct, PowerManager::isCharging() ? "+" : "");
+}
+
+// Lo que ya está dibujado, para redibujar solo lo que cambia (si no, parpadea).
+static char shownBatt[8];
+static uint16_t shownBattColor;
+static int shownNet = -1;
+static char shownTime[12];
+static char shownDate[20];
+static char shownSteps[16];
+static char shownKm[16];
+static char shownAlarm[16];
+static int shownBar = -1;
+static uint32_t shownWeather = 0xFFFFFFFF;
+
+static void forgetShown() {
+    shownBatt[0] = shownTime[0] = shownDate[0] = shownSteps[0] = shownKm[0] = shownAlarm[0] = 0;
+    shownBattColor = 0;
+    shownNet = -1;
+    shownBar = -1;
+    shownWeather = 0xFFFFFFFF;
+}
+
+static const int BATT_RIGHT = 350, BATT_BOX_W = 56;
+
+static void drawHeaderBattery(Arduino_GFX* g, bool force) {
+    char buf[8];
+    batteryText(buf, sizeof(buf));
+    uint16_t color = batteryColor();
+    if (!force && color == shownBattColor && strcmp(buf, shownBatt) == 0) return;
+    strlcpy(shownBatt, buf, sizeof(shownBatt));
+    shownBattColor = color;
+    AAText::drawBox(g, FONT_S, BATT_RIGHT - BATT_BOX_W, HDR_Y, BATT_BOX_W, buf, color, PAL_FONDO, RIGHT, 1);
+}
+
+// Puntito a la izquierda de la batería: lima con internet, rojo sin conexión.
+static void drawNetDot(Arduino_GFX* g, bool force) {
+    int net = NetStatus::get() == NET_ONLINE ? 1 : 0;
+    if (!force && net == shownNet) return;
+    shownNet = net;
+    g->fillCircle(BATT_RIGHT - BATT_BOX_W - 8, HDR_Y + 10, 4, net ? PAL_ACENTO : PAL_ALERTA);
+}
+
+// Hora "HH:MM" y si es confiable (si nunca llegó por NTP, se muestra en rojo).
+static bool clockText(char* buf, size_t len) {
+    struct tm t;
+    if (!getLocalTime(&t, 0)) { snprintf(buf, len, "--:--"); return false; }
+    snprintf(buf, len, "%02d:%02d", t.tm_hour, t.tm_min);
+    return true;
+}
+
+static void dateText(char* buf, size_t len) {
+    struct tm t;
+    if (!getLocalTime(&t, 0)) { buf[0] = 0; return; }
+    snprintf(buf, len, "%s %d %s", DAYS[t.tm_wday], t.tm_mday, MONTHS[t.tm_mon]);
 }
 
 void DisplayUI::init() {
@@ -92,11 +261,9 @@ ScreenState DisplayUI::getCurrentScreen() { return currentScreen; }
 void DisplayUI::setScreenState(ScreenState state) { currentScreen = state; }
 
 String DisplayUI::getFormattedTime() {
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) return "--:--";
-    char timeBuff[10];
-    strftime(timeBuff, sizeof(timeBuff), "%H:%M", &timeinfo);
-    return String(timeBuff);
+    char buf[12];
+    clockText(buf, sizeof(buf));
+    return String(buf);
 }
 
 void DisplayUI::refreshCurrentScreen() {
@@ -107,107 +274,81 @@ void DisplayUI::refreshCurrentScreen() {
     else if (currentScreen == SCREEN_BATTERY) drawBatteryScreen();
 }
 
+// --- MENÚ DE PERFILES ---
 void DisplayUI::drawAvatar(int x, int y, uint16_t color, const char* name) {
-    gfx->fillRoundRect(x, y, 150, 150, 15, color);
-    gfx->drawRoundRect(x, y, 150, 150, 15, PAL_TEXTO_CLARO);
-    gfx->fillCircle(x + 75, y + 50, 25, PAL_TEXTO);
-    gfx->fillRoundRect(x + 40, y + 80, 70, 40, 10, PAL_TEXTO);
-    gfx->setTextColor(PAL_TEXTO_CLARO);  // el nombre va debajo del cuadrado, sobre negro
-    gfx->setTextSize(2);
-    gfx->setCursor(x + 20, y + 160);
-    gfx->print(name);
+    outlineBox(gfx, x, y, 140, 140, 18, PAL_BORDE);
+    char initial[2] = { name[0], 0 };
+    AAText::drawCentered(gfx, FONT_XXL, x + 70, y + 14, initial, color, PAL_FONDO);
+    char upper[12];
+    int i = 0;
+    for (; name[i] && i < 11; i++) upper[i] = toupper(name[i]);
+    upper[i] = 0;
+    AAText::drawCentered(gfx, FONT_M, x + 70, y + 100, upper, PAL_GRIS, PAL_FONDO, 2);
 }
 
 void DisplayUI::drawProfileMenu() {
     if (PowerManager::isScreenOff()) return;   // se dibuja al encender
     gfx->fillScreen(PAL_FONDO);
+    char buf[8];
+    batteryText(buf, sizeof(buf));
+    AAText::drawCentered(gfx, FONT_S, CX, HDR_Y, buf, batteryColor(), PAL_FONDO, 1);
     for (int i = 0; i < 4; i++) {
         drawAvatar(profiles[i].x, profiles[i].y, profiles[i].color, profiles[i].name);
     }
-    gfx->fillRoundRect(50, 400, 310, 60, 12, PAL_ACENTO);
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(3);
-    gfx->setCursor(50 + (310 - 7 * 18) / 2, 418);
-    gfx->print("AJUSTES");
-
-    drawBattery(gfx, 182, 6);   // arriba al centro, lejos de las esquinas redondeadas
+    button(gfx, PROF_SET_X, PROF_SET_Y, PROF_SET_W, PROF_SET_H, "AJUSTES", FONT_M, false);
 }
 
 // --- PANTALLA AJUSTES ---
-// Cada ajuste: título y una fila [ - ]  valor  [ + ] con botones grandes.
-static const int SET_MINUS_X = 50, SET_PLUS_X = 270, SET_BTN_W = 90, SET_BTN_H = 60;
-static const int SET_BRIGHT_Y = 95, SET_VOLUME_Y = 215;      // fila de botones de cada ajuste
-static const int SET_WIFI_Y = 320, SET_BACK_Y = 395;          // botones de abajo (alto 55)
+// Cada ajuste: etiqueta y una fila [ - ]  valor  [ + ] con botones grandes.
+static const int SET_MINUS_X = 50, SET_PLUS_X = 270, SET_BTN_W = 90, SET_BTN_H = 56;
+static const int SET_BRIGHT_Y = 96, SET_VOLUME_Y = 198;       // fila de botones de cada ajuste
+static const int SET_WIFI_X = 50, SET_BATT_X = 210, SET_ROW2_W = 150, SET_WIFI_Y = 282;
+static const int SET_BACK_X = 100, SET_BACK_W = 210, SET_BACK_Y = 362, SET_ROW_H = 56;
 
 static void drawSettingRow(Arduino_GFX* g, const char* title, int y, const char* value) {
-    g->setTextColor(PAL_LILA);
-    g->setTextSize(2);
-    g->setCursor((LCD_WIDTH - strlen(title) * 12) / 2, y - 30);
-    g->print(title);
-    g->fillRoundRect(SET_MINUS_X, y, SET_BTN_W, SET_BTN_H, 12, PAL_ACENTO);
-    g->fillRoundRect(SET_PLUS_X, y, SET_BTN_W, SET_BTN_H, 12, PAL_ACENTO);
-    g->setTextColor(PAL_TEXTO);
-    g->setTextSize(4);
-    g->setCursor(SET_MINUS_X + (SET_BTN_W - 24) / 2, y + 15); g->print("-");
-    g->setCursor(SET_PLUS_X + (SET_BTN_W - 24) / 2, y + 15); g->print("+");
-    // Valor en el medio (se borra antes porque cambia de largo).
-    g->fillRect(SET_MINUS_X + SET_BTN_W + 5, y, SET_PLUS_X - SET_MINUS_X - SET_BTN_W - 10, SET_BTN_H, PAL_FONDO);
-    g->setTextColor(PAL_TEXTO_CLARO);
-    g->setTextSize(3);
-    g->setCursor((LCD_WIDTH - strlen(value) * 18) / 2, y + 18);
-    g->print(value);
+    AAText::drawCentered(g, FONT_S, CX, y - 28, title, PAL_GRIS, PAL_FONDO, 2);
+    button(g, SET_MINUS_X, y, SET_BTN_W, SET_BTN_H, "-", FONT_XL, false);
+    button(g, SET_PLUS_X, y, SET_BTN_W, SET_BTN_H, "+", FONT_XL, false);
+    // Valor en el medio, en una caja de ancho fijo (cambia de largo sin dejar restos).
+    int bx = SET_MINUS_X + SET_BTN_W + 4, bw = SET_PLUS_X - bx - 4;
+    AAText::drawBox(g, FONT_L, bx, textTopFor(FONT_L, y, SET_BTN_H), bw, value, PAL_BLANCO, PAL_FONDO, CENTER);
 }
 
 static void drawSettingValues(Arduino_GFX* g) {
     char buf[12];
     snprintf(buf, sizeof(buf), "%d%%", Settings::brightness() * 100 / Settings::BRIGHTNESS_LEVELS);
-    drawSettingRow(g, "Brillo", SET_BRIGHT_Y, buf);
+    drawSettingRow(g, "BRILLO", SET_BRIGHT_Y, buf);
     snprintf(buf, sizeof(buf), "%d/10", Settings::alarmVolume());
-    drawSettingRow(g, "Volumen de la alarma", SET_VOLUME_Y, buf);
+    drawSettingRow(g, "VOLUMEN DE LA ALARMA", SET_VOLUME_Y, buf);
 }
 
 void DisplayUI::drawSettingsScreen() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);
-    gfx->setTextColor(PAL_CELESTE);
-    gfx->setTextSize(3);
-    gfx->setCursor((LCD_WIDTH - 7 * 18) / 2, 22);
-    gfx->print("AJUSTES");
+    AAText::drawCentered(gfx, FONT_L, CX, 20, "AJUSTES", PAL_BLANCO, PAL_FONDO, 2);
     drawSettingValues(gfx);
-
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(2);
-    gfx->fillRoundRect(60, SET_WIFI_Y, 140, 55, 12, PAL_LILA);
-    gfx->setCursor(60 + (140 - 4 * 12) / 2, SET_WIFI_Y + 20);
-    gfx->print("WIFI");
-    gfx->fillRoundRect(210, SET_WIFI_Y, 140, 55, 12, PAL_MENTA);
-    gfx->setCursor(210 + (140 - 7 * 12) / 2, SET_WIFI_Y + 20);
-    gfx->print("BATERIA");
-
-    gfx->fillRoundRect(100, SET_BACK_Y, 210, 55, 12, PAL_ALERTA);
-    gfx->setCursor((LCD_WIDTH - 6 * 12) / 2, SET_BACK_Y + 20);
-    gfx->print("VOLVER");
+    button(gfx, SET_WIFI_X, SET_WIFI_Y, SET_ROW2_W, SET_ROW_H, "WIFI", FONT_M, false);
+    button(gfx, SET_BATT_X, SET_WIFI_Y, SET_ROW2_W, SET_ROW_H, "BATERÍA", FONT_M, false);
+    button(gfx, SET_BACK_X, SET_BACK_Y, SET_BACK_W, SET_ROW_H, "VOLVER", FONT_M, true);
 }
 
 // --- PANTALLA BATERIA ---
 // Gasto por hora en cada estado y los últimos tramos de 15 min del registro, el más
 // nuevo arriba. mV = voltaje; P/A/D = minutos con la pantalla prendida, apagada y en modo
 // dormir; S% = del tiempo en modo dormir, cuánto durmió de verdad el chip; C = enchufado o
-// cargando (no cuenta para el gasto).
-static const int BAT_BTN_Y = 400;
+// cargando (no cuenta para el gasto). La tabla usa la letra de ancho fijo de la pantalla
+// (tamaño 2) para que las columnas queden alineadas.
+static const int BAT_BTN_Y = 400, BAT_BTN_H = 50;
 static const int BAT_ROWS = 8;
 
 void DisplayUI::drawBatteryScreen() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);
-    gfx->setTextColor(PAL_MENTA);
-    gfx->setTextSize(3);
-    gfx->setCursor((LCD_WIDTH - 7 * 18) / 2, 22);
-    gfx->print("BATERIA");
+    AAText::drawCentered(gfx, FONT_L, CX, 20, "BATERÍA", PAL_BLANCO, PAL_FONDO, 2);
 
     gfx->setTextSize(2);
-    gfx->setTextColor(PAL_LILA);
-    gfx->setCursor(50, 60);
+    gfx->setTextColor(PAL_GRIS);
+    gfx->setCursor(50, 62);
     gfx->print("Gasto por hora:");
     static const char* names[] = {"Prendida", "Apagada ", "Dormido "};
     char buf[32];
@@ -215,15 +356,15 @@ void DisplayUI::drawBatteryScreen() {
         float r = BatteryLog::ratePerHour(s);
         if (r < 0) snprintf(buf, sizeof(buf), "%s  sin datos", names[s]);
         else       snprintf(buf, sizeof(buf), "%s  %.1f %%/h", names[s], r);
-        gfx->setTextColor(PAL_TEXTO_CLARO);
+        gfx->setTextColor(PAL_BLANCO);
         gfx->setCursor(50, 85 + s * 22);
         gfx->print(buf);
     }
 
-    gfx->setTextColor(PAL_LILA);
+    gfx->setTextColor(PAL_ACENTO);
     gfx->setCursor(30, 160);
     gfx->print("Hora     %   mV  P  A  D  S%");
-    gfx->setTextColor(PAL_TEXTO_CLARO);
+    gfx->setTextColor(PAL_BLANCO);
     int n = BatteryLog::count();
     if (n == 0) {
         gfx->setCursor(50, 185);
@@ -241,56 +382,156 @@ void DisplayUI::drawBatteryScreen() {
         gfx->setCursor(30, 185 + row * 20);
         gfx->print(buf);
     }
-    gfx->setTextColor(PAL_LILA);
+    gfx->setTextColor(PAL_GRIS);
     gfx->setCursor(30, 350);
     gfx->print("P prend. A apag. D dormido");
     gfx->setCursor(30, 372);
     gfx->print("S% = durmio de verdad  C=USB");
 
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->fillRoundRect(60, BAT_BTN_Y, 140, 50, 12, PAL_TARJETA);
-    gfx->setTextColor(PAL_TEXTO_CLARO);
-    gfx->setCursor(60 + (140 - 6 * 12) / 2, BAT_BTN_Y + 17);
-    gfx->print("BORRAR");
-    gfx->fillRoundRect(210, BAT_BTN_Y, 140, 50, 12, PAL_ALERTA);
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->setCursor(210 + (140 - 6 * 12) / 2, BAT_BTN_Y + 17);
-    gfx->print("VOLVER");
+    button(gfx, 60, BAT_BTN_Y, 140, BAT_BTN_H, "BORRAR", FONT_M, false);
+    button(gfx, 210, BAT_BTN_Y, 140, BAT_BTN_H, "VOLVER", FONT_M, true);
 }
 
-// La hora se llama cada segundo pero solo cambia una vez por minuto: se redibuja
-// solo si cambió el texto o si pasó a estar sincronizada (si no, parpadea).
-static String lastClockText;
-static int lastClockSynced = -1;           // -1 = forzar el próximo dibujo
+// --- ENCABEZADO DEL DASHBOARD ---
+// Nombre a la izquierda, batería y conexión a la derecha y, fuera de INICIO, la hora al medio.
+static void drawHeader(Arduino_GFX* g, const char* name) {
+    char upper[12];
+    int i = 0;
+    for (; name[i] && i < 11; i++) upper[i] = toupper(name[i]);
+    upper[i] = 0;
+    AAText::draw(g, FONT_S, 62, HDR_Y, upper, PAL_GRIS, PAL_FONDO, 2);
+    drawHeaderBattery(g, true);
+    drawNetDot(g, true);
+}
 
-void DisplayUI::drawHeaderClockOnly() {
-    if (activeProfile < 0 || PowerManager::isScreenOff()) return;
-    String text = getFormattedTime();
-    int syncedNow = TimeSync::isSynced() ? 1 : 0;
-    if (text == lastClockText && syncedNow == lastClockSynced) return;
-    lastClockText = text;
-    lastClockSynced = syncedNow;
+// --- PANTALLA DE INICIO ---
+// Hora gigante, fecha, pasos del día con barra hacia la meta, distancia, clima y la
+// próxima alarma.
+static const unsigned long STEP_GOAL = 10000;
+static const int HOME_CLOCK_Y = 58;
+static const int HOME_DATE_Y = 150;
+static const int HOME_STEPS_Y = 198;                 // renglón FONT_S de "PASOS"
+static const int HOME_BAR_Y = 228, HOME_BAR_H = 10;
+static const int CARD_Y = 252, CARD_H = 72, CARD_W = 160, CARD2_X = CR - CARD_W;
+static const int ALARM_CARD_Y = 336, ALARM_CARD_H = 56;
 
-    gfx->fillRect(CLOCK_X - 3, 0, LCD_WIDTH - (CLOCK_X - 3), HEADER_H, profiles[activeProfile].color);
-    if (TimeSync::isSynced()) {
-        gfx->setTextColor(PAL_TEXTO);
-    } else {
-        // Hora de respaldo (nunca llegó la de NTP): dígitos en coral sobre una
-        // pastilla oscura, para que se note que no es confiable.
-        gfx->fillRoundRect(CLOCK_X - 3, CLOCK_Y - 3, CLOCK_W + 5, 30, 6, PAL_TEXTO);
-        gfx->setTextColor(PAL_ALERTA);
+// Próxima alarma activa: "07:30" o "" si no hay.
+static void nextAlarmText(char* buf, size_t len) {
+    buf[0] = 0;
+    struct tm t;
+    if (!getLocalTime(&t, 0)) return;
+    int now = t.tm_hour * 60 + t.tm_min, best = 100000;
+    for (int i = 0; i < AlarmManager::alarmCount; i++) {
+        const AlarmItem& a = AlarmManager::alarmList[i];
+        if (!a.active) continue;
+        int in = (a.hour * 60 + a.minute - now + 1440) % 1440;
+        if (in == 0) in = 1440;
+        if (in < best) { best = in; snprintf(buf, len, "%02d:%02d", a.hour, a.minute); }
     }
-    gfx->setTextSize(3);
-    gfx->setCursor(CLOCK_X, CLOCK_Y);
-    gfx->print(text);
 }
 
-// --- CRONÓMETRO: zona de los dígitos dentro de la caja del dashboard ---
-static const int CHRONO_Y      = 170;
-static const int CHRONO_H      = 40;                  // setTextSize(5): 8 px * 5
-static const int CHRONO_CHAR_W = 30;                  // 6 px * 5
+static void drawWeatherCard(Arduino_GFX* g) {
+    shownWeather = Weather::version();
+    g->fillRect(CARD2_X + 4, CARD_Y + 26, CARD_W - 8, CARD_H - 30, PAL_FONDO);
+    int x = CARD2_X + 14, y = CARD_Y + 30;
+    if (!Weather::available()) {
+        AAText::draw(g, FONT_L, x, y, "--°", PAL_GRIS, PAL_FONDO);
+        return;
+    }
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%d°", Weather::temperature());
+    int w = AAText::draw(g, FONT_L, x, y, buf, PAL_BLANCO, PAL_FONDO);
+    int dx = x + w + 6;
+    AAText::drawBox(g, FONT_S, dx, y + FONT_L.ascent - FONT_S.ascent, CARD2_X + CARD_W - 8 - dx,
+                    Weather::description(), PAL_GRIS, PAL_FONDO);
+}
 
-// La pestaña CRONO tiene dos modos: cronómetro y temporizador (selector arriba).
+// Datos que cambian (cada segundo se llama; dibuja solo lo distinto).
+static void refreshHome(Arduino_GFX* g, bool force) {
+    char buf[20];
+    if (StepCounter::available()) {
+        unsigned long steps = StepCounter::steps();
+        thousands(buf, sizeof(buf), steps);
+        if (force || strcmp(buf, shownSteps) != 0) {
+            strlcpy(shownSteps, buf, sizeof(shownSteps));
+            int goalW = AAText::width(FONT_S, " / 10.000");
+            AAText::drawBox(g, FONT_L, CR - goalW - 140, HOME_STEPS_Y + FONT_S.ascent - FONT_L.ascent, 140,
+                            buf, PAL_BLANCO, PAL_FONDO, RIGHT);
+        }
+        int fill = min(steps, STEP_GOAL) * CW / STEP_GOAL;
+        if (force || fill != shownBar) {
+            shownBar = fill;
+            g->fillRoundRect(CL, HOME_BAR_Y, CW, HOME_BAR_H, HOME_BAR_H / 2, PAL_BORDE);
+            if (fill >= HOME_BAR_H) g->fillRoundRect(CL, HOME_BAR_Y, fill, HOME_BAR_H, HOME_BAR_H / 2, PAL_ACENTO);
+        }
+        kmText(buf, sizeof(buf), StepCounter::distanceKm());
+    } else {
+        strlcpy(buf, "sin sensor", sizeof(buf));
+    }
+    if (force || strcmp(buf, shownKm) != 0) {
+        strlcpy(shownKm, buf, sizeof(shownKm));
+        AAText::drawBox(g, FONT_L, CL + 14, CARD_Y + 30, CARD_W - 22, buf, PAL_BLANCO, PAL_FONDO);
+    }
+    if (force || Weather::version() != shownWeather) drawWeatherCard(g);
+
+    nextAlarmText(buf, sizeof(buf));
+    if (force || strcmp(buf, shownAlarm) != 0) {
+        strlcpy(shownAlarm, buf, sizeof(shownAlarm));
+        int y = textTopFor(FONT_L, ALARM_CARD_Y, ALARM_CARD_H);
+        if (buf[0]) AAText::drawBox(g, FONT_L, CR - 134, y, 120, buf, PAL_BLANCO, PAL_FONDO, RIGHT);
+        else AAText::drawBox(g, FONT_L, CR - 134, y, 120, "ninguna", PAL_GRIS, PAL_FONDO, RIGHT);
+    }
+}
+
+static void drawHome(Arduino_GFX* g) {
+    AAText::draw(g, FONT_S, CL, HOME_STEPS_Y, "PASOS", PAL_GRIS, PAL_FONDO, 1);
+    AAText::drawRight(g, FONT_S, CR, HOME_STEPS_Y, " / 10.000", PAL_GRIS, PAL_FONDO);
+
+    outlineBox(g, CL, CARD_Y, CARD_W, CARD_H, 16, PAL_BORDE);
+    outlineBox(g, CARD2_X, CARD_Y, CARD_W, CARD_H, 16, PAL_BORDE);
+    AAText::draw(g, FONT_S, CL + 14, CARD_Y + 8, "DISTANCIA", PAL_GRIS, PAL_FONDO, 1);
+    AAText::draw(g, FONT_S, CARD2_X + 14, CARD_Y + 8, "CLIMA", PAL_GRIS, PAL_FONDO, 1);
+
+    outlineBox(g, CL, ALARM_CARD_Y, CW, ALARM_CARD_H, 16, PAL_BORDE);
+    AAText::draw(g, FONT_S, CL + 14, textTopFor(FONT_S, ALARM_CARD_Y, ALARM_CARD_H), "PRÓXIMA ALARMA",
+                 PAL_GRIS, PAL_FONDO, 1);
+    refreshHome(g, true);
+}
+
+// La hora se llama cada segundo pero solo cambia una vez por minuto: se redibuja solo si
+// cambió el texto o si pasó a estar sincronizada.
+void DisplayUI::drawHeaderClockOnly() {
+    if (activeProfile < 0 || PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
+    char buf[12];
+    clockText(buf, sizeof(buf));
+    bool synced = TimeSync::isSynced();
+    char key[16];
+    snprintf(key, sizeof(key), "%s%d", buf, synced);
+    if (strcmp(key, shownTime) == 0) return;
+    strlcpy(shownTime, key, sizeof(shownTime));
+    // Hora de respaldo (nunca llegó la de NTP): en rojo, para que se note que no es confiable.
+    uint16_t color = synced ? PAL_BLANCO : PAL_ALERTA;
+    if (currentTab == TAB_HOME) {
+        AAText::drawBox(gfx, FONT_HUGE, CL, HOME_CLOCK_Y, CW, buf, color, PAL_FONDO, CENTER);
+        char date[20];
+        dateText(date, sizeof(date));
+        if (strcmp(date, shownDate) != 0) {
+            strlcpy(shownDate, date, sizeof(shownDate));
+            AAText::drawBox(gfx, FONT_M, CL, HOME_DATE_Y, CW, date, PAL_ACENTO, PAL_FONDO, CENTER, 2);
+        }
+    } else {
+        AAText::drawBox(gfx, FONT_L, CX - 50, HDR_TIME_Y, 100, buf, color, PAL_FONDO, CENTER);
+    }
+}
+
+// --- CRONO ---
+// Selector [CRONÓMETRO | TEMPORIZADOR], los dígitos y, abajo, INICIAR/PAUSA y RESET.
+static const int SEG_Y = CONTENT_Y, SEG_H = 44, SEG_W = 163, SEG2_X = CR - SEG_W;
+static const int CHRONO_Y = 122;                     // FONT_XXL: hasta 201
+static const int SESSION_Y = 212;
+static const int TIMER_BTN_Y = 214, TIMER_BTN_H = 50, TIMER_BTN_W = 104, TIMER_BTN_STEP = 113;
+static const int CHRONO_BTN_Y = 300, CHRONO_BTN_H = 56, CHRONO_BTN_W = 160, CHRONO_BTN2_X = CR - CHRONO_BTN_W;
+
 static bool chronoShowTimer = false;
 
 void DisplayUI::drawChronoDigits() {
@@ -306,36 +547,24 @@ void DisplayUI::drawChronoDigits() {
     char buf[16];
     if (hours > 0) snprintf(buf, sizeof(buf), "%lu:%02d:%02d", hours, minutes, seconds);
     else           snprintf(buf, sizeof(buf), "%02d:%02d", minutes, seconds);
-
-    // Los dígitos se escriben con fondo (sin borrar antes) para que no parpadee; solo se
-    // borra la zona cuando cambia el largo (al pasar de MM:SS a H:MM:SS o al resetear).
-    static size_t lastLen = 0;
-    size_t len = strlen(buf);
-    if (len != lastLen) {
-        gfx->fillRect(20, CHRONO_Y, LCD_WIDTH - 40, CHRONO_H, PAL_FONDO);   // sin tocar el borde de la caja
-        lastLen = len;
-    }
-    int textW = len * CHRONO_CHAR_W;
-    gfx->setTextSize(5);
-    gfx->setTextColor(PAL_MENTA, PAL_FONDO);
-    gfx->setCursor((LCD_WIDTH - textW) / 2, CHRONO_Y);
-    gfx->print(buf);
+    bool running = chronoShowTimer ? AlarmManager::isTimerRunning() : AlarmManager::isChronoRunning();
+    // Caja de ancho fijo: los números tienen todos el mismo ancho y no parpadea.
+    AAText::drawBox(gfx, FONT_XXL, CL, CHRONO_Y, CW, buf, running ? PAL_ACENTO : PAL_BLANCO, PAL_FONDO, CENTER);
 }
 
 // Sesión del cronómetro (solo en modo CRONOMETRO), debajo de los dígitos: pasos y km
-// desde INICIAR, sin contar las pausas. Texto con fondo y ancho fijo: no parpadea.
+// desde INICIAR, sin contar las pausas, y la velocidad del momento.
 static void drawSessionLine(Arduino_GFX* g) {
     if (chronoShowTimer) return;
-    char buf[24];
-    g->setTextSize(2);
-    g->setTextColor(PAL_TEXTO_CLARO, PAL_FONDO);
-    snprintf(buf, sizeof(buf), "Sesion: %lu pasos", (unsigned long)StepCounter::sessionSteps());
-    g->setCursor((LCD_WIDTH - 20 * 12) / 2, 222);
-    g->printf("%-20s", buf);
-    g->setTextColor(PAL_MENTA, PAL_FONDO);
-    snprintf(buf, sizeof(buf), "%.2f km", StepCounter::sessionKm());
-    g->setCursor((LCD_WIDTH - 20 * 12) / 2, 248);
-    g->printf("%-20s", buf);
+    char steps[16], km[16], buf[48];
+    thousands(steps, sizeof(steps), StepCounter::sessionSteps());
+    kmText(km, sizeof(km), StepCounter::sessionKm());
+    snprintf(buf, sizeof(buf), "%s pasos  ·  %s", steps, km);
+    AAText::drawBox(g, FONT_M, CL, SESSION_Y, CW, buf, PAL_BLANCO, PAL_FONDO, CENTER);
+    float v = StepCounter::speedKmh();
+    snprintf(buf, sizeof(buf), v >= 10 ? "%.0f KM/H" : "%.1f KM/H", v);
+    for (char* p = buf; *p; p++) if (*p == '.') *p = ',';
+    AAText::drawBox(g, FONT_S, CL, SESSION_Y + 30, CW, buf, v > 0 ? PAL_ACENTO : PAL_GRIS, PAL_FONDO, CENTER, 1);
 }
 
 void DisplayUI::refreshChronoDigits() {
@@ -345,66 +574,137 @@ void DisplayUI::refreshChronoDigits() {
     drawSessionLine(gfx);
 }
 
-// Texto tamaño 2 con letras 1 px más juntas de lo normal (11 px en vez de 12), así
-// "Sin conexion" (12 letras) entra en la cajita entre el nombre y la hora.
-static const int NET_CHAR_ADV = 11;
+static void drawChronoTab(Arduino_GFX* g) {
+    if (chronoShowTimer) {
+        button(g, CL, SEG_Y, SEG_W, SEG_H, "CRONÓMETRO", FONT_M, false);
+        button(g, SEG2_X, SEG_Y, SEG_W, SEG_H, "TEMPORIZADOR", FONT_M, true);
+    } else {
+        button(g, CL, SEG_Y, SEG_W, SEG_H, "CRONÓMETRO", FONT_M, true);
+        button(g, SEG2_X, SEG_Y, SEG_W, SEG_H, "TEMPORIZADOR", FONT_M, false);
+    }
+    if (chronoShowTimer) {
+        static const char* labels[3] = { "+1 MIN", "+5 MIN", "+10 MIN" };
+        for (int i = 0; i < 3; i++)
+            button(g, CL + i * TIMER_BTN_STEP, TIMER_BTN_Y, TIMER_BTN_W, TIMER_BTN_H, labels[i], FONT_M, false);
+    }
+    bool running = chronoShowTimer ? AlarmManager::isTimerRunning() : AlarmManager::isChronoRunning();
+    if (running) button(g, CL, CHRONO_BTN_Y, CHRONO_BTN_W, CHRONO_BTN_H, "PAUSA", FONT_L, true, PAL_BLANCO);
+    else button(g, CL, CHRONO_BTN_Y, CHRONO_BTN_W, CHRONO_BTN_H, "INICIAR", FONT_L, true);
+    button(g, CHRONO_BTN2_X, CHRONO_BTN_Y, CHRONO_BTN_W, CHRONO_BTN_H, "RESET", FONT_L, false);
+}
 
-static void printCondensed(Arduino_GFX* g, int x, int y, const char* text) {
-    for (int i = 0; text[i]; i++) {
-        g->setCursor(x + i * NET_CHAR_ADV, y);
-        g->print(text[i]);
+// --- ALARMAS ---
+// Lista: cada alarma en una tarjeta (hora + interruptor) con el botón de borrar al lado.
+static const int ALARM_ROW_Y = 94, ALARM_ROW_STEP = 58, ALARM_ROW_H = 50;
+static const int ALARM_CARD_W = 270, ALARM_DEL_X = CL + ALARM_CARD_W + 8, ALARM_DEL_W = CR - ALARM_DEL_X;
+static const int NEW_ALARM_H = 50;
+
+static int newAlarmY() {
+    return ALARM_ROW_Y + AlarmManager::alarmCount * ALARM_ROW_STEP;
+}
+
+static void drawSwitch(Arduino_GFX* g, int x, int cy, bool on) {
+    g->fillRoundRect(x, cy - 14, 52, 28, 14, on ? PAL_ACENTO : PAL_BORDE);
+    g->fillCircle(on ? x + 38 : x + 14, cy, 10, on ? PAL_FONDO : PAL_GRIS);
+}
+
+static void drawAlarmsTab(Arduino_GFX* g) {
+    AAText::draw(g, FONT_S, CL, CONTENT_Y, "ALARMAS", PAL_GRIS, PAL_FONDO, 2);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d/%d", AlarmManager::alarmCount, MAX_ALARMS);
+    AAText::drawRight(g, FONT_S, CR, CONTENT_Y, buf, PAL_GRIS, PAL_FONDO, 1);
+
+    for (int i = 0; i < AlarmManager::alarmCount; i++) {
+        int y = ALARM_ROW_Y + i * ALARM_ROW_STEP;
+        bool active = AlarmManager::alarmList[i].active;
+        outlineBox(g, CL, y, ALARM_CARD_W, ALARM_ROW_H, 14, PAL_BORDE);
+        snprintf(buf, sizeof(buf), "%02d:%02d", AlarmManager::alarmList[i].hour, AlarmManager::alarmList[i].minute);
+        AAText::draw(g, FONT_L, CL + 16, textTopFor(FONT_L, y, ALARM_ROW_H), buf, active ? PAL_BLANCO : PAL_GRIS, PAL_FONDO);
+        drawSwitch(g, CL + ALARM_CARD_W - 66, y + ALARM_ROW_H / 2, active);
+
+        outlineBox(g, ALARM_DEL_X, y, ALARM_DEL_W, ALARM_ROW_H, 14, PAL_BORDE);
+        int cx = ALARM_DEL_X + ALARM_DEL_W / 2, cy = y + ALARM_ROW_H / 2;
+        thickLine(g, cx - 8, cy - 8, cx + 8, cy + 8, PAL_ALERTA);
+        thickLine(g, cx - 8, cy + 8, cx + 8, cy - 8, PAL_ALERTA);
+    }
+    if (AlarmManager::alarmCount < MAX_ALARMS) {
+        button(g, CL, newAlarmY(), CW, NEW_ALARM_H, "+ NUEVA ALARMA", FONT_M, true);
+    }
+    if (AlarmManager::alarmCount == 0) {
+        AAText::drawWrapped(g, FONT_M, CL, newAlarmY() + NEW_ALARM_H + 24, CW, 3,
+                            "También se las podés pedir a JARVIS: \"poneme una alarma a las 7\".",
+                            PAL_GRIS, PAL_FONDO);
     }
 }
 
-// Cajita de conexión del encabezado: "Conectado" en menta si hay internet,
-// "Sin conexion" en coral en cualquier otro caso (sin WiFi o WiFi sin internet).
-void DisplayUI::drawNetBox() {
-    bool connected = (NetStatus::get() == NET_ONLINE);
-    const char* label = connected ? "Conectado" : "Sin conexion";
+// Nueva alarma: hora grande con [+] y [-] debajo de las horas y de los minutos.
+static const int ADD_TIME_Y = 94;
+static const int ADD_HOUR_X = 80, ADD_MIN_X = 220, ADD_COL_W = 110;
+static const int ADD_PLUS_Y = 190, ADD_MINUS_Y = 250, ADD_BTN_H = 50;
+static const int ADD_SAVE_Y = 322, ADD_SAVE_H = 52;
 
-    // Se borra con el color del perfil para no dejar restos del estado anterior.
-    gfx->fillRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, profiles[activeProfile].color);
-    gfx->fillRoundRect(WIFI_BOX_X, WIFI_BOX_Y, WIFI_BOX_W, WIFI_BOX_H, 6, connected ? PAL_OK : PAL_ALERTA);
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(2);
-    int textW = strlen(label) * NET_CHAR_ADV - 1;
-    printCondensed(gfx, WIFI_BOX_X + (WIFI_BOX_W - textW) / 2, WIFI_BOX_Y + (WIFI_BOX_H - 16) / 2, label);
+static void drawAddTime(Arduino_GFX* g, int hour, int minute) {
+    char buf[4];
+    snprintf(buf, sizeof(buf), "%02d", hour);
+    AAText::drawBox(g, FONT_XXL, ADD_HOUR_X, ADD_TIME_Y, ADD_COL_W, buf, PAL_BLANCO, PAL_FONDO, CENTER);
+    snprintf(buf, sizeof(buf), "%02d", minute);
+    AAText::drawBox(g, FONT_XXL, ADD_MIN_X, ADD_TIME_Y, ADD_COL_W, buf, PAL_BLANCO, PAL_FONDO, CENTER);
 }
 
-void DisplayUI::refreshNetStatus(bool wifiChanged) {
-    if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
-    // Las pestañas ya no dependen del WiFi (MÚSICA va por Bluetooth): alcanza con la cajita.
-    drawNetBox();
+static void drawAddAlarmTab(Arduino_GFX* g, int hour, int minute) {
+    AAText::draw(g, FONT_S, CL, CONTENT_Y, "NUEVA ALARMA", PAL_GRIS, PAL_FONDO, 2);
+    drawAddTime(g, hour, minute);
+    AAText::drawCentered(g, FONT_XXL, CX, ADD_TIME_Y - 4, ":", PAL_GRIS, PAL_FONDO);
+    button(g, ADD_HOUR_X, ADD_PLUS_Y, ADD_COL_W, ADD_BTN_H, "+", FONT_L, false);
+    button(g, ADD_MIN_X, ADD_PLUS_Y, ADD_COL_W, ADD_BTN_H, "+", FONT_L, false);
+    button(g, ADD_HOUR_X, ADD_MINUS_Y, ADD_COL_W, ADD_BTN_H, "-", FONT_L, false);
+    button(g, ADD_MIN_X, ADD_MINUS_Y, ADD_COL_W, ADD_BTN_H, "-", FONT_L, false);
+    button(g, CL, ADD_SAVE_Y, CW, ADD_SAVE_H, "GUARDAR", FONT_L, true);
 }
 
-// --- PESTAÑA MÚSICA (dentro de la caja 15..395 x 110..410) ---
-// Fila de arriba: anterior, play/pausa, siguiente. Fila de abajo: volumen - y +.
+// --- MÚSICA ---
+// Arriba la canción; fila de botones anterior, play/pausa, siguiente y, abajo, el volumen.
 struct MusicButton { int x, y, w, h; const char* label; MediaRemote::Key key; };
 static const MusicButton MUSIC_BUTTONS[] = {
-    {  40, 215, 100, 80, "|<<", MediaRemote::PREV },
-    { 155, 215, 100, 80, ">||", MediaRemote::PLAY_PAUSE },
-    { 270, 215, 100, 80, ">>|", MediaRemote::NEXT },
-    {  40, 315, 155, 70, "VOL-", MediaRemote::VOL_DOWN },
-    { 215, 315, 155, 70, "VOL+", MediaRemote::VOL_UP },
+    { CL,  214,  96, 80, nullptr, MediaRemote::PREV },
+    { 157, 214,  96, 80, nullptr, MediaRemote::PLAY_PAUSE },
+    { 274, 214,  96, 80, nullptr, MediaRemote::NEXT },
+    { CL,  310, 160, 64, "VOL -", MediaRemote::VOL_DOWN },
+    { 210, 310, 160, 64, "VOL +", MediaRemote::VOL_UP },
 };
 static const int MUSIC_BUTTON_COUNT = sizeof(MUSIC_BUTTONS) / sizeof(MUSIC_BUTTONS[0]);
+static const int MUSIC_STATUS_Y = CONTENT_Y, MUSIC_STATUS_H = 140;
 static bool lastMusicConnected = false;
 
-static void drawMusicButton(Arduino_GFX* g, const MusicButton& b, uint16_t fill, uint16_t text) {
-    g->fillRoundRect(b.x, b.y, b.w, b.h, 12, fill);
-    g->setTextColor(text);
-    g->setTextSize(3);
-    int tw = strlen(b.label) * 18;
-    g->setCursor(b.x + (b.w - tw) / 2, b.y + (b.h - 24) / 2);
-    g->print(b.label);
-}
-
-// Imprime hasta maxChars caracteres; si el texto es más largo, lo corta con "..".
-static void printFit(Arduino_GFX* g, const char* s, int maxChars) {
-    int n = strlen(s);
-    if (n <= maxChars) { g->print(s); return; }
-    for (int i = 0; i < maxChars - 2; i++) g->print(s[i]);
-    g->print("..");
+// flash = recién apretado (blanco por un momento).
+static void drawMusicButton(Arduino_GFX* g, int i, bool flash) {
+    const MusicButton& b = MUSIC_BUTTONS[i];
+    bool conn = MediaRemote::isConnected();
+    bool filled = flash || (conn && b.key == MediaRemote::PLAY_PAUSE);
+    uint16_t fill = flash ? PAL_BLANCO : PAL_ACENTO;
+    uint16_t fg = filled ? PAL_FONDO : (conn ? PAL_BLANCO : PAL_GRIS);
+    uint16_t bg = filled ? fill : PAL_FONDO;
+    if (filled) g->fillRoundRect(b.x, b.y, b.w, b.h, 14, fill);
+    else outlineBox(g, b.x, b.y, b.w, b.h, 14, PAL_BORDE);
+    int cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    switch (b.key) {
+        case MediaRemote::PREV:
+            g->fillRect(cx - 13, cy - 11, 4, 22, fg);
+            g->fillTriangle(cx + 11, cy - 11, cx + 11, cy + 11, cx - 8, cy, fg);
+            break;
+        case MediaRemote::NEXT:
+            g->fillRect(cx + 10, cy - 11, 4, 22, fg);
+            g->fillTriangle(cx - 11, cy - 11, cx - 11, cy + 11, cx + 8, cy, fg);
+            break;
+        case MediaRemote::PLAY_PAUSE:
+            g->fillTriangle(cx - 16, cy - 12, cx - 16, cy + 12, cx + 2, cy, fg);
+            g->fillRect(cx + 6, cy - 11, 4, 22, fg);
+            g->fillRect(cx + 13, cy - 11, 4, 22, fg);
+            break;
+        default:
+            AAText::drawCentered(g, FONT_L, cx, textTopFor(FONT_L, b.y, b.h), b.label, fg, bg, 1);
+            break;
+    }
 }
 
 static uint32_t lastTrackVersion = 0;
@@ -414,38 +714,27 @@ static void drawMusicStatus(Arduino_GFX* g) {
     bool conn = MediaRemote::isConnected();
     lastMusicConnected = conn;
     lastTrackVersion = MediaRemote::trackInfoVersion();
-    g->fillRect(20, 118, LCD_WIDTH - 40, 90, PAL_FONDO);   // zona del estado
-    g->setTextSize(2);
+    g->fillRect(CL, MUSIC_STATUS_Y, CW, MUSIC_STATUS_H, PAL_FONDO);
+    int y = MUSIC_STATUS_Y;
     if (conn && MediaRemote::title()[0]) {
-        // Entran 29 letras de 12 px entre x=30 y x=380.
-        g->setTextColor(PAL_CELESTE);
-        g->setCursor(30, 128); printFit(g, MediaRemote::title(), 29);
-        g->setTextColor(PAL_LILA);
-        g->setCursor(30, 154); printFit(g, MediaRemote::artist(), 29);
-        g->setTextColor(MediaRemote::isPlaying() ? PAL_MENTA : PAL_AMARILLO);
-        g->setCursor(30, 182); g->print(MediaRemote::isPlaying() ? "Sonando" : "En pausa");
+        const char* state = MediaRemote::isPlaying() ? "SONANDO" : "EN PAUSA";
+        AAText::draw(g, FONT_S, CL, y, state, MediaRemote::isPlaying() ? PAL_ACENTO : PAL_GRIS, PAL_FONDO, 2);
+        y = AAText::drawWrapped(g, FONT_L, CL, y + 28, CW, 2, MediaRemote::title(), PAL_BLANCO, PAL_FONDO, 0);
+        AAText::drawWrapped(g, FONT_M, CL, y + 2, CW, 1, MediaRemote::artist(), PAL_GRIS, PAL_FONDO);
     } else if (conn) {
-        g->setTextColor(PAL_MENTA);
-        g->setCursor(30, 130); g->print("Conectado al celular");
-        g->setTextColor(PAL_LILA);
-        g->setCursor(30, 160); g->print("Pone algo en Spotify u");
-        g->setCursor(30, 182); g->print("otra app de musica");
+        AAText::draw(g, FONT_S, CL, y, "CONECTADO AL CELULAR", PAL_ACENTO, PAL_FONDO, 2);
+        AAText::drawWrapped(g, FONT_M, CL, y + 30, CW, 3, "Poné algo en Spotify u otra app de música.",
+                            PAL_GRIS, PAL_FONDO);
     } else {
-        g->setTextColor(PAL_AMARILLO);
-        g->setCursor(30, 130); g->print("Sin conectar");
-        g->setTextColor(PAL_TEXTO_CLARO);
-        g->setCursor(30, 160); g->print("En el celular: Ajustes >");
-        g->setCursor(30, 182); g->print("Bluetooth > JARVIS Reloj");
+        AAText::draw(g, FONT_S, CL, y, "SIN CONECTAR", PAL_ALERTA, PAL_FONDO, 2);
+        AAText::drawWrapped(g, FONT_M, CL, y + 30, CW, 3, "En el celular: Ajustes > Bluetooth > JARVIS Reloj",
+                            PAL_BLANCO, PAL_FONDO);
     }
 }
 
 static void drawMusicTab(Arduino_GFX* g) {
-    bool conn = MediaRemote::isConnected();
     drawMusicStatus(g);
-    for (int i = 0; i < MUSIC_BUTTON_COUNT; i++) {
-        if (conn) drawMusicButton(g, MUSIC_BUTTONS[i], PAL_ACENTO, PAL_TEXTO);
-        else      drawMusicButton(g, MUSIC_BUTTONS[i], PAL_TARJETA, PAL_LILA);   // deshabilitados
-    }
+    for (int i = 0; i < MUSIC_BUTTON_COUNT; i++) drawMusicButton(g, i, false);
 }
 
 // --- Toques en los botones de música (sin bloquear) ---
@@ -454,17 +743,16 @@ static void drawMusicTab(Arduino_GFX* g) {
 static const unsigned long MUSIC_HOLD_GAP_MS  = 90;
 static const unsigned long MUSIC_REPEAT_AFTER = 450;   // mantener volumen: empieza a repetir...
 static const unsigned long MUSIC_REPEAT_EVERY = 150;   // ...y repite cada 150 ms
-static const unsigned long MUSIC_FLASH_MS     = 200;   // blanco al apretar: en menta casi no se distinguía del celeste
+static const unsigned long MUSIC_FLASH_MS     = 200;   // blanco al apretar
 static int musicHeld = -1;                 // botón que se está apretando
 static unsigned long musicLastTouch = 0, musicHeldSince = 0, musicLastSend = 0;
 static int musicFlash = -1;                // botón pintado de blanco
 static unsigned long musicFlashUntil = 0;
 
 static void musicSend(Arduino_GFX* g, int i) {
-    const MusicButton& b = MUSIC_BUTTONS[i];
-    MediaRemote::press(b.key);
+    MediaRemote::press(MUSIC_BUTTONS[i].key);
     musicLastSend = millis();
-    drawMusicButton(g, b, PAL_TEXTO_CLARO, PAL_TEXTO);
+    drawMusicButton(g, i, true);
     musicFlash = i;
     musicFlashUntil = millis() + MUSIC_FLASH_MS;
 }
@@ -486,14 +774,13 @@ void DisplayUI::handleMusicButton(int i) {
     }
 }
 
-// Vuelve a pintar de celeste el botón que titiló (se llama en cada vuelta del loop).
+// Vuelve a su color el botón que titiló (se llama en cada vuelta del loop).
 void DisplayUI::musicTick() {
     if (musicFlash < 0 || millis() < musicFlashUntil) return;
     int i = musicFlash;
     musicFlash = -1;
     if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD || currentTab != TAB_MUSIC) return;
-    drawMusicButton(gfx, MUSIC_BUTTONS[i], MediaRemote::isConnected() ? PAL_ACENTO : PAL_TARJETA,
-                    MediaRemote::isConnected() ? PAL_TEXTO : PAL_LILA);
+    drawMusicButton(gfx, i, false);
 }
 
 // Si cambia el estado de la conexión Bluetooth con la pestaña a la vista, se redibuja.
@@ -503,321 +790,75 @@ void DisplayUI::refreshMusicTab() {
     else if (MediaRemote::trackInfoVersion() != lastTrackVersion) drawMusicStatus(gfx);   // solo la canción
 }
 
+// --- DASHBOARD ---
 void DisplayUI::drawDashboard() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);
-
-    gfx->fillRect(0, 0, LCD_WIDTH, HEADER_H, profiles[activeProfile].color);
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(2);
-    gfx->setCursor(NAME_X, NAME_Y);
-    gfx->printf("%s", profiles[activeProfile].name);
-
-    drawNetBox();
-    lastClockSynced = -1;          // el encabezado se acaba de pintar: forzar la hora
+    forgetShown();
+    drawHeader(gfx, profiles[activeProfile].name);
     drawHeaderClockOnly();
 
-    // 4 pestañas. ALARMAS junta la lista y la carga de una nueva (antes AGENDA y +ALARMA).
-    bool alarmsTab = currentTab == TAB_AGENDA || currentTab == TAB_ADD_ALARM;
-    drawTab(gfx, 15,                TAB_W, 19,                "ALARMAS", alarmsTab);
-    drawTab(gfx, 20 + TAB_W,        TAB_W, 30 + TAB_W,        "CRONO",   currentTab == TAB_CHRONO);
-    drawTab(gfx, 25 + (TAB_W * 2),  TAB_W, 33 + (TAB_W * 2),  "MUSICA",  currentTab == TAB_MUSIC);
-    drawTab(gfx, 30 + (TAB_W * 3),  TAB_W, 38 + (TAB_W * 3),  "JARVIS",  currentTab == TAB_JARVIS);
-
-    gfx->drawRoundRect(15, 110, 380, 300, 12, PAL_LILA);
-
-    if (currentTab == TAB_AGENDA) {
-        gfx->setTextColor(PAL_AMARILLO);
-        gfx->setTextSize(2);
-        gfx->setCursor(30, 125);
-        gfx->printf("Alarmas (%d/%d)", AlarmManager::alarmCount, MAX_ALARMS);
-
-        if (AlarmManager::alarmCount == 0) {
-            gfx->setTextColor(PAL_LILA);
-            gfx->setCursor(40, 220);
-            gfx->print("Sin alarmas todavia");
-        }
-        for (int i = 0; i < AlarmManager::alarmCount; i++) {
-            int yPos = ALARM_ROW_Y + i * ALARM_ROW_STEP;
-            bool active = AlarmManager::alarmList[i].active;
-            gfx->fillRoundRect(30, yPos, 110, ALARM_ROW_H, 8, active ? PAL_ACENTO : PAL_TARJETA);
-            gfx->setTextColor(active ? PAL_TEXTO : PAL_TEXTO_CLARO);
-            gfx->setTextSize(3);
-            gfx->setCursor(40, yPos + 6);
-            gfx->printf("%02d:%02d", AlarmManager::alarmList[i].hour, AlarmManager::alarmList[i].minute);
-
-            gfx->setTextColor(active ? PAL_OK : PAL_ALERTA);
-            gfx->setTextSize(2);
-            gfx->setCursor(155, yPos + 10);
-            gfx->print(active ? "ACTIVA" : "INACTIVA");
-
-            gfx->fillRoundRect(310, yPos, 45, ALARM_ROW_H, 8, PAL_ALERTA);
-            gfx->setTextColor(PAL_TEXTO);
-            gfx->setTextSize(3);
-            gfx->setCursor(325, yPos + 6);
-            gfx->print("X");
-        }
-        if (AlarmManager::alarmCount < MAX_ALARMS) {
-            gfx->fillRoundRect(NEW_ALARM_X, NEW_ALARM_Y, NEW_ALARM_W, NEW_ALARM_H, 10, PAL_OK);
-            gfx->setTextColor(PAL_TEXTO);
-            gfx->setTextSize(2);
-            gfx->setCursor(NEW_ALARM_X + (NEW_ALARM_W - 7 * 12) / 2, NEW_ALARM_Y + 11);
-            gfx->print("+ NUEVA");
-        }
-    } else if (currentTab == TAB_JARVIS) {
-        drawJarvisTab();
-    } else if (currentTab == TAB_CHRONO) {
-        // Selector de modo: [CRONOMETRO | TEMPORIZADOR]
-        gfx->setTextSize(2);
-        gfx->fillRoundRect(25, 118, 178, 36, 8, chronoShowTimer ? PAL_TARJETA : PAL_ACENTO);
-        gfx->fillRoundRect(207, 118, 178, 36, 8, chronoShowTimer ? PAL_ACENTO : PAL_TARJETA);
-        gfx->setTextColor(chronoShowTimer ? PAL_TEXTO_CLARO : PAL_TEXTO);
-        gfx->setCursor(25 + (178 - 10 * 12) / 2, 128); gfx->print("CRONOMETRO");
-        gfx->setTextColor(chronoShowTimer ? PAL_TEXTO : PAL_TEXTO_CLARO);
-        gfx->setCursor(207 + (178 - 12 * 12) / 2, 128); gfx->print("TEMPORIZADOR");
-
-        drawChronoDigits();
-        drawSessionLine(gfx);
-
-        if (chronoShowTimer) {
-            // Botones para cargar el tiempo.
-            const char* labels[3] = { "+1 min", "+5 min", "+10 min" };
-            gfx->setTextSize(2);                 // drawChronoDigits dejó el tamaño en 5
-            for (int i = 0; i < 3; i++) {
-                int x = 30 + i * 120;
-                gfx->fillRoundRect(x, 225, 110, 45, 10, PAL_LILA);
-                gfx->setTextColor(PAL_TEXTO);
-                gfx->setCursor(x + (110 - strlen(labels[i]) * 12) / 2, 240);
-                gfx->print(labels[i]);
-            }
-        }
-
-        bool running = chronoShowTimer ? AlarmManager::isTimerRunning() : AlarmManager::isChronoRunning();
-        gfx->fillRoundRect(45, 290, 130, 50, 10, running ? PAL_ALERTA : PAL_OK);
-        gfx->setTextColor(PAL_TEXTO);
-        gfx->setTextSize(2);
-        const char* action = running ? "PAUSA" : "INICIAR";
-        gfx->setCursor(45 + (130 - strlen(action) * 12) / 2, 305);
-        gfx->print(action);
-
-        gfx->fillRoundRect(235, 290, 130, 50, 10, PAL_LILA);
-        gfx->setCursor(235 + (130 - 5 * 12) / 2, 305);
-        gfx->print("RESET");
-    } else if (currentTab == TAB_ADD_ALARM) {
-        gfx->setTextColor(PAL_TEXTO_CLARO);
-        gfx->setTextSize(2);
-        gfx->setCursor(30, 125); gfx->print("Nueva Alarma:");
-
-        gfx->setTextSize(5);
-        gfx->setTextColor(PAL_CELESTE);
-        gfx->setCursor(40, 155);
-        gfx->printf("%02d:%02d", tempHour, tempMinute);
-
-        // (El volumen de la alarma pasó a la pantalla AJUSTES.)
-        gfx->setTextColor(PAL_TEXTO);
-        gfx->fillRoundRect(40, 225, 85, 45, 8, PAL_ACENTO);
-        gfx->fillRoundRect(140, 225, 85, 45, 8, PAL_ACENTO);
-        gfx->setTextSize(3);
-        gfx->setCursor(75, 235); gfx->print("+");
-        gfx->setCursor(175, 235); gfx->print("+");
-
-        gfx->fillRoundRect(40, 280, 85, 45, 8, PAL_ACENTO);
-        gfx->fillRoundRect(140, 280, 85, 45, 8, PAL_ACENTO);
-        gfx->setCursor(75, 290); gfx->print("-");
-        gfx->setCursor(175, 290); gfx->print("-");
-
-        gfx->fillRoundRect(240, 225, 140, 100, 12, PAL_OK);
-        gfx->setTextSize(2);
-        gfx->setCursor(255, 265);
-        gfx->print("GUARDAR");
-    } else if (currentTab == TAB_MUSIC) {
-        drawMusicTab(gfx);
+    switch (currentTab) {
+        case TAB_HOME:      drawHome(gfx); break;
+        case TAB_AGENDA:    drawAlarmsTab(gfx); break;
+        case TAB_ADD_ALARM: drawAddAlarmTab(gfx, tempHour, tempMinute); break;
+        case TAB_CHRONO:    drawChronoTab(gfx); drawChronoDigits(); drawSessionLine(gfx); break;
+        case TAB_MUSIC:     drawMusicTab(gfx); break;
+        case TAB_JARVIS:    drawJarvisTab(); break;
     }
-
-    drawBottomBar();
+    drawNav(gfx, currentTab);
 }
 
-// --- BARRA INFERIOR DEL DASHBOARD (debajo de la caja, que termina en y=410) ---
-// Izquierda: pasos y distancia. Centro: batería y velocidad. Derecha: botón Salir.
-// Abajo las esquinas redondeadas tapan ~35-45 px, por eso nada pasa de x 55..350.
-static const int BAR_Y        = 428;
-static const int BAR_H        = 48;
-static const int STEPS_X      = 55;
-static const int BATT_X       = 192;      // también la velocidad, en el renglón de abajo
-static const int SALIR_X      = 282;
-static const int SALIR_W      = 68;
-
-// Color de la batería: menta >50 %, amarillo 20-50 %, coral <20 %, celeste cargando.
-static uint16_t batteryColor() {
-    int pct = PowerManager::batteryPercent();
-    return PowerManager::isCharging() ? PAL_CELESTE
-         : pct < 0   ? PAL_LILA
-         : pct > 50  ? PAL_OK
-         : pct >= 20 ? PAL_AMARILLO
-         : PAL_ALERTA;
-}
-
-// "85%", "85%+" cargando, "--" sin batería.
-static void batteryText(char* buf, size_t len) {
-    int pct = PowerManager::batteryPercent();
-    if (pct < 0) snprintf(buf, len, "--");
-    else snprintf(buf, len, "%d%%%s", pct, PowerManager::isCharging() ? "+" : "");
-}
-
-static void drawBattery(Arduino_GFX* g, int x, int y) {
-    char buf[8];
-    batteryText(buf, sizeof(buf));
-    g->setTextColor(batteryColor());
-    g->setTextSize(2);
-    g->setCursor(x, y);
-    g->print(buf);
-}
-
-// Para que no parpadee, cada dato de la barra se escribe con su propio fondo
-// (sin borrar antes) y rellenado con espacios hasta un ancho fijo, y solo si cambió.
-enum BarField { BF_STEPS, BF_KM, BF_BATT, BF_SPEED, BF_COUNT };
-static char barText[BF_COUNT][14];
-static uint16_t barColor[BF_COUNT];
-
-static void drawBarField(Arduino_GFX* g, BarField f, int x, int y, int widthChars,
-                         const char* text, uint16_t color, bool force) {
-    if (!force && barColor[f] == color && strcmp(barText[f], text) == 0) return;
-    strncpy(barText[f], text, sizeof(barText[f]) - 1);
-    barText[f][sizeof(barText[f]) - 1] = 0;
-    barColor[f] = color;
-    g->setTextColor(color, PAL_FONDO);
-    g->setTextSize(2);
-    g->setCursor(x, y);
-    g->printf("%-*s", widthChars, text);
-}
-
-// Pasos, km y velocidad solo se muestran en la pestaña CRONO; en las demás la barra
-// tiene solo la batería y el botón Salir.
-static void updateBarFields(Arduino_GFX* g, bool force, bool showSteps) {
-    char buf[16];
-    if (!showSteps) {
-        // (el dashboard se acaba de pintar de negro, no hay nada que borrar)
-    } else if (StepCounter::available()) {
-        snprintf(buf, sizeof(buf), "%lu pasos", (unsigned long)StepCounter::steps());
-        drawBarField(g, BF_STEPS, STEPS_X, BAR_Y + 2, 11, buf, PAL_MENTA, force);
-        snprintf(buf, sizeof(buf), "%.2f km", StepCounter::distanceKm());
-        drawBarField(g, BF_KM, STEPS_X, BAR_Y + 26, 11, buf, PAL_TEXTO_CLARO, force);
-
-        // Velocidad estimada con el ritmo de pasos (sin GPS). Hasta 7 caracteres.
-        float v = StepCounter::speedKmh();
-        if (v >= 10) snprintf(buf, sizeof(buf), "%.0fkm/h", v);
-        else snprintf(buf, sizeof(buf), "%.1fkm/h", v);
-        drawBarField(g, BF_SPEED, BATT_X, BAR_Y + 26, 7, buf, v > 0 ? PAL_CELESTE : PAL_LILA, force);
-    } else {
-        drawBarField(g, BF_STEPS, STEPS_X, BAR_Y + 16, 11, "sin sensor", PAL_LILA, force);
-    }
-    batteryText(buf, sizeof(buf));
-    drawBarField(g, BF_BATT, BATT_X, BAR_Y + 2, 7, buf, batteryColor(), force);
-}
-
-// Dibujo completo (al armar el dashboard, que ya pintó el fondo de negro).
-void DisplayUI::drawBottomBar() {
-    updateBarFields(gfx, true, currentTab == TAB_CHRONO);
-
-    gfx->fillRoundRect(SALIR_X, BAR_Y, SALIR_W, 45, 12, PAL_ALERTA);
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(2);
-    gfx->setCursor(SALIR_X + (SALIR_W - 5 * 12) / 2, BAR_Y + 15);
-    gfx->print("Salir");
-}
-
-// Actualización periódica: solo los datos que cambiaron, sin tocar el botón.
-void DisplayUI::refreshBottomBar() {
+void DisplayUI::refreshNetStatus(bool wifiChanged) {
+    (void)wifiChanged;
     if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
-    updateBarFields(gfx, false, currentTab == TAB_CHRONO);
+    drawNetDot(gfx, false);
 }
 
-// Hora grande en blanco sobre fondo negro, con la fecha abajo. Tamaño 10: cada número
-// mide 60x80 px, "HH:MM" ocupa 300 px y queda centrado lejos de las esquinas.
+// Una vez por segundo: batería del encabezado y, en INICIO, pasos, km, clima y alarma.
+void DisplayUI::refreshLiveData() {
+    if (PowerManager::isScreenOff() || currentScreen != SCREEN_DASHBOARD) return;
+    drawHeaderBattery(gfx, false);
+    if (currentTab == TAB_HOME) refreshHome(gfx, false);
+}
+
+// Hora grande al levantar la muñeca, con la fecha abajo.
 void DisplayUI::drawBigClock() {
-    static const char* DAYS[7]    = { "Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab" };
-    static const char* MONTHS[12] = { "ene", "feb", "mar", "abr", "may", "jun",
-                                      "jul", "ago", "sep", "oct", "nov", "dic" };
     gfx->fillScreen(PAL_FONDO);
-    struct tm t;
-    if (!getLocalTime(&t, 0)) return;
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
-    gfx->setTextColor(0xFFFF);                   // blanco puro
-    gfx->setTextSize(10);
-    gfx->setCursor((LCD_WIDTH - 5 * 60) / 2, 170);
-    gfx->print(buf);
-    snprintf(buf, sizeof(buf), "%s %d %s", DAYS[t.tm_wday], t.tm_mday, MONTHS[t.tm_mon]);
-    gfx->setTextColor(PAL_LILA);
-    gfx->setTextSize(3);
-    gfx->setCursor((LCD_WIDTH - strlen(buf) * 18) / 2, 290);
-    gfx->print(buf);
+    char buf[20];
+    if (!clockText(buf, sizeof(buf))) return;
+    AAText::drawCentered(gfx, FONT_HUGE, CX, 170, buf, PAL_BLANCO, PAL_FONDO);
+    dateText(buf, sizeof(buf));
+    AAText::drawCentered(gfx, FONT_M, CX, 268, buf, PAL_ACENTO, PAL_FONDO, 2);
 }
 
-// Escribe el texto en renglones de hasta maxChars, cortando en los espacios. Si no entra
-// en maxLines, el último renglón termina en "..". Devuelve la y siguiente.
-static int printWrapped(Arduino_GFX* g, const char* text, int x, int y, int maxChars, int maxLines, int lineH) {
-    int len = strlen(text), pos = 0;
-    for (int line = 0; line < maxLines && pos < len; line++) {
-        while (pos < len && text[pos] == ' ') pos++;
-        int n = min(maxChars, len - pos);
-        if (pos + n < len) {                          // no entra todo: cortar en un espacio
-            int cut = n;
-            while (cut > 0 && text[pos + cut] != ' ') cut--;
-            if (cut > maxChars / 2) n = cut;
-        }
-        char buf[40];
-        memcpy(buf, text + pos, n);
-        buf[n] = 0;
-        if (line == maxLines - 1 && pos + n < len && n >= 2) buf[n - 2] = buf[n - 1] = '.';
-        g->setCursor(x, y);
-        g->print(buf);
-        y += lineH;
-        pos += n;
-    }
-    return y;
-}
-
+// --- NOTIFICACIONES ---
 static const int NOTIF_BTN_Y = 375, NOTIF_BTN_H = 70;
 
 void DisplayUI::drawNotification(const char* app, const char* title, const char* message, bool call) {
-    uint16_t color = PAL_LILA;
-    if (call) color = PAL_ALERTA;
-    else if (strcmp(app, "WhatsApp") == 0) color = PAL_MENTA;
-    else if (strcmp(app, "Mensajes") == 0) color = PAL_CELESTE;
-
     gfx->fillScreen(PAL_FONDO);
-    // Etiqueta con la app (o "LLAMADA") en el color de la app.
-    const char* label = call ? "LLAMADA" : app;
-    int labelW = strlen(label) * 18 + 30;
-    gfx->fillRoundRect((LCD_WIDTH - labelW) / 2, 30, labelW, 40, 12, color);
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(3);
-    gfx->setCursor((LCD_WIDTH - strlen(label) * 18) / 2, 39);
-    gfx->print(label);
+    // Etiqueta con la app (o "LLAMADA"): lima, o roja si es una llamada.
+    char label[24];
+    int i = 0;
+    const char* src = call ? "LLAMADA" : app;
+    for (; src[i] && i < 23; i++) label[i] = toupper((unsigned char)src[i]);
+    label[i] = 0;
+    uint16_t pill = call ? PAL_ALERTA : PAL_ACENTO;
+    uint16_t pillText = call ? PAL_BLANCO : PAL_FONDO;
+    int labelW = AAText::width(FONT_M, label, 2) + 36;
+    gfx->fillRoundRect(CX - labelW / 2, 28, labelW, 38, 19, pill);
+    AAText::drawCentered(gfx, FONT_M, CX, textTopFor(FONT_M, 28, 38), label, pillText, pill, 2);
 
-    // Quién: tamaño 3, hasta 2 renglones de 18 letras.
-    gfx->setTextColor(0xFFFF);
-    int y = printWrapped(gfx, title, 40, 95, 18, 2, 30);
+    // Quién (2 renglones) y el mensaje.
+    int y = AAText::drawWrapped(gfx, FONT_L, 50, 84, 310, 2, title, PAL_BLANCO, PAL_FONDO, 0);
     if (call) {
-        gfx->fillRoundRect(60, NOTIF_BTN_Y, LCD_WIDTH - 120, NOTIF_BTN_H, 20, PAL_ALERTA);
-        gfx->setTextColor(PAL_TEXTO);
-        gfx->setTextSize(3);
-        gfx->setCursor((LCD_WIDTH - 8 * 18) / 2, NOTIF_BTN_Y + 24);
-        gfx->print("RECHAZAR");
-        gfx->setTextColor(PAL_LILA);
-        gfx->setTextSize(2);
-        gfx->setCursor((LCD_WIDTH - 22 * 12) / 2, NOTIF_BTN_Y - 40);
-        gfx->print("Toca arriba para cerrar");
+        button(gfx, 60, NOTIF_BTN_Y, LCD_WIDTH - 120, NOTIF_BTN_H, "RECHAZAR", FONT_XL, true, PAL_ALERTA, PAL_BLANCO);
+        AAText::drawCentered(gfx, FONT_S, CX, NOTIF_BTN_Y - 36, "Tocá arriba para cerrar", PAL_GRIS, PAL_FONDO);
         return;
     }
-    // Mensaje: tamaño 2, renglones de 27 letras hasta la leyenda de abajo.
-    gfx->setTextColor(PAL_TEXTO_CLARO);
-    gfx->setTextSize(2);
-    printWrapped(gfx, message, 40, y + 15, 27, (400 - (y + 15)) / 24, 24);
-    gfx->setTextColor(PAL_LILA);
-    gfx->setCursor((LCD_WIDTH - 16 * 12) / 2, 425);
-    gfx->print("Toca para cerrar");
+    int lineH = FONT_M.height + 2;
+    AAText::drawWrapped(gfx, FONT_M, 50, y + 10, 310, (405 - (y + 10)) / lineH, message, PAL_GRIS, PAL_FONDO);
+    AAText::drawCentered(gfx, FONT_S, CX, 425, "Tocá para cerrar", PAL_GRIS, PAL_FONDO);
 }
 
 bool DisplayUI::hitRejectButton(int16_t x, int16_t y) {
@@ -826,34 +867,29 @@ bool DisplayUI::hitRejectButton(int16_t x, int16_t y) {
 
 // --- PESTAÑA JARVIS ---
 // Arriba el estado (qué hacer o en qué paso va), después lo que dijiste y la respuesta.
-static const char* JARVIS_IDLE = "Mantene BOOT y habla";
+static const char* JARVIS_IDLE = "Mantené BOOT y hablá";
 static char jarvisStatus[40] = "";
-static const int JARVIS_STATUS_Y = 122;
 
 static void drawJarvisStatus(Arduino_GFX* g) {
-    g->fillRect(25, JARVIS_STATUS_Y - 2, 360, 20, PAL_FONDO);
-    g->setTextColor(PAL_AMARILLO);
-    g->setTextSize(2);
-    g->setCursor(30, JARVIS_STATUS_Y);
-    g->print(jarvisStatus[0] ? jarvisStatus : JARVIS_IDLE);
+    AAText::drawBox(g, FONT_M, CL, CONTENT_Y, CW, jarvisStatus[0] ? jarvisStatus : JARVIS_IDLE,
+                    PAL_ACENTO, PAL_FONDO);
 }
 
 void DisplayUI::drawJarvisTab() {
-    gfx->fillRect(20, 115, 370, 290, PAL_FONDO);
+    gfx->fillRect(CL, CONTENT_Y, CW, NAV_Y - 8 - CONTENT_Y, PAL_FONDO);
     drawJarvisStatus(gfx);
-    int y = 155;
+    int y = CONTENT_Y + 38;
+    int lineH = FONT_M.height + 2;
     if (Jarvis::question()[0]) {
-        gfx->setTextColor(PAL_LILA);
-        y = printWrapped(gfx, Jarvis::question(), 30, y, 29, 2, 22) + 8;
+        y = AAText::drawWrapped(gfx, FONT_M, CL, y, CW, 2, Jarvis::question(), PAL_GRIS, PAL_FONDO) + 8;
     }
     if (Jarvis::answer()[0]) {
-        gfx->setTextColor(0xFFFF);
-        printWrapped(gfx, Jarvis::answer(), 30, y, 29, (400 - y) / 22, 22);
+        AAText::drawWrapped(gfx, FONT_M, CL, y, CW, (NAV_Y - 10 - y) / lineH, Jarvis::answer(), PAL_BLANCO, PAL_FONDO);
     } else if (!Jarvis::question()[0]) {
-        gfx->setTextColor(PAL_LILA);
-        printWrapped(gfx, "Preguntale por tu agenda, que te anote un evento o lo que quieras. "
-                          "Necesita internet (WiFi o el hotspot del celu) y la compu con n8n prendido.",
-                          30, 170, 29, 8, 24);
+        AAText::drawWrapped(gfx, FONT_M, CL, y + 8, CW, 8,
+                            "Preguntale por tu agenda, que te ponga una alarma, el clima o lo que quieras. "
+                            "Necesita internet (WiFi o el hotspot del celu) y la compu con n8n prendido.",
+                            PAL_GRIS, PAL_FONDO);
     }
 }
 
@@ -876,8 +912,8 @@ void DisplayUI::talkToJarvis(bool (*keepRecording)()) {
     Jarvis::Result r = Jarvis::ask(profiles[activeProfile].name, keepRecording, jarvisOnStatus, jarvisOnAnswer);
     switch (r) {
         case Jarvis::OK:        jarvisStatus[0] = 0; break;
-        case Jarvis::NO_WIFI:   strlcpy(jarvisStatus, "Sin internet: proba de nuevo", sizeof(jarvisStatus)); break;
-        case Jarvis::TOO_SHORT: strlcpy(jarvisStatus, "Muy corto: mantene BOOT", sizeof(jarvisStatus)); break;
+        case Jarvis::NO_WIFI:   strlcpy(jarvisStatus, "Sin internet: probá de nuevo", sizeof(jarvisStatus)); break;
+        case Jarvis::TOO_SHORT: strlcpy(jarvisStatus, "Muy corto: mantené BOOT", sizeof(jarvisStatus)); break;
         case Jarvis::SERVER_ERROR:
             if (Jarvis::lastHttpCode() < 0) strlcpy(jarvisStatus, "n8n no responde", sizeof(jarvisStatus));
             else snprintf(jarvisStatus, sizeof(jarvisStatus), "Error de n8n (%d)", Jarvis::lastHttpCode());
@@ -889,73 +925,48 @@ void DisplayUI::talkToJarvis(bool (*keepRecording)()) {
 void DisplayUI::showSleepMessage() {
     if (PowerManager::isScreenOff()) return;
     gfx->fillScreen(PAL_FONDO);
-    gfx->setTextColor(PAL_LILA);
-    gfx->setTextSize(3);
-    gfx->setCursor((LCD_WIDTH - 11 * 18) / 2, 200);
-    gfx->print("Modo dormir");
-    gfx->setTextColor(PAL_TEXTO_CLARO);
-    gfx->setTextSize(2);
-    gfx->setCursor((LCD_WIDTH - 19 * 12) / 2, 250);
-    gfx->print("Toca para despertar");
+    AAText::drawCentered(gfx, FONT_XL, CX, 190, "MODO DORMIR", PAL_BLANCO, PAL_FONDO, 2);
+    AAText::drawCentered(gfx, FONT_M, CX, 250, "Tocá para despertar", PAL_GRIS, PAL_FONDO);
 }
+
+// --- CONFIGURAR WIFI ---
+static const int PORTAL_BTN_X = 50, PORTAL_BTN_Y = 340, PORTAL_BTN_W = 310, PORTAL_BTN_H = 70;
 
 void DisplayUI::drawWifiPortalScreen() {
     if (PowerManager::isScreenOff()) return;   // se dibuja al encender
     gfx->fillScreen(PAL_FONDO);
-    gfx->setTextColor(PAL_CELESTE);
-    gfx->setTextSize(2);
-    gfx->setCursor((LCD_WIDTH - 15 * 12) / 2, 40);   // centrado: en x=35 lo tapaba la esquina
-    gfx->print("CONFIGURAR WIFI");
-
-    gfx->setTextColor(PAL_TEXTO_CLARO);
-    gfx->setCursor(25, 110); gfx->print("1. Conectate a la red:");
-    gfx->setTextColor(PAL_AMARILLO);
-    gfx->setCursor(25, 140); gfx->print("   JARVIS-Clock-Config");
-
-    gfx->setTextColor(PAL_TEXTO_CLARO);
-    gfx->setCursor(25, 200); gfx->print("2. Abre en tu navegador:");
-    gfx->setTextColor(PAL_AMARILLO);
-    gfx->setCursor(25, 230); gfx->print("   http://192.168.4.1");
-
-    gfx->fillRoundRect(50, 340, 300, 70, 15, PAL_ALERTA);
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(3);
-    gfx->setCursor(120, 362); gfx->print("VOLVER");
+    AAText::drawCentered(gfx, FONT_L, CX, 28, "CONFIGURAR WIFI", PAL_BLANCO, PAL_FONDO, 2);
+    AAText::draw(gfx, FONT_M, 50, 100, "1. Conectate a la red:", PAL_GRIS, PAL_FONDO);
+    AAText::draw(gfx, FONT_L, 50, 128, "JARVIS-Clock-Config", PAL_ACENTO, PAL_FONDO);
+    AAText::draw(gfx, FONT_M, 50, 190, "2. Abrí en el navegador:", PAL_GRIS, PAL_FONDO);
+    AAText::draw(gfx, FONT_L, 50, 218, "http://192.168.4.1", PAL_ACENTO, PAL_FONDO);
+    button(gfx, PORTAL_BTN_X, PORTAL_BTN_Y, PORTAL_BTN_W, PORTAL_BTN_H, "VOLVER", FONT_L, true);
 }
 
-// Pantalla que suena (alarma o temporizador). Bloquea hasta que se toca un botón y
-// devuelve true si se eligió POSPONER. Al terminar vuelve a la pantalla que había.
+// Pantalla que suena (alarma o temporizador): toda en acento para que se note. Bloquea
+// hasta que se toca un botón y devuelve true si se eligió POSPONER. Al terminar vuelve a
+// la pantalla que había.
 bool DisplayUI::ringScreen(const char* title, const char* timeText, bool allowSnooze) {
     // Si la pantalla estaba apagada, se enciende (sin redibujar: esta pantalla dibuja la suya).
     PowerManager::turnScreenOn(false);
 
     ScreenState previousScreen = currentScreen;
     currentScreen = SCREEN_ALARM_RINGING;
-    // Pantalla completa en coral: es lo más llamativo de la paleta y contrasta
-    // con el resto de la interfaz, que es casi toda negra.
-    gfx->fillScreen(PAL_ALERTA);
-    gfx->setTextColor(PAL_TEXTO);
-    gfx->setTextSize(4);
-    gfx->setCursor((LCD_WIDTH - strlen(title) * 24) / 2, 50); gfx->print(title);
-    gfx->setTextSize(6);
-    gfx->setCursor((LCD_WIDTH - strlen(timeText) * 36) / 2, 120); gfx->print(timeText);
+    gfx->fillScreen(PAL_ACENTO);
+    AAText::drawCentered(gfx, FONT_L, CX, 44, title, PAL_FONDO, PAL_ACENTO, 3);
+    AAText::drawCentered(gfx, FONT_HUGE, CX, 96, timeText, PAL_FONDO, PAL_ACENTO);
 
     // Cajas entre x 40..370 y hasta y=445, lejos de las esquinas redondeadas de abajo.
     const int SNOOZE_Y = 220, SNOOZE_H = 95;
     const int OFF_Y = allowSnooze ? 330 : 220;
     const int OFF_H = 445 - OFF_Y;
     if (allowSnooze) {
-        gfx->fillRoundRect(40, SNOOZE_Y, LCD_WIDTH - 80, SNOOZE_H, 20, PAL_TEXTO_CLARO);
-        gfx->setTextColor(PAL_TEXTO);
-        gfx->setTextSize(3);
-        gfx->setCursor((LCD_WIDTH - 8 * 18) / 2, SNOOZE_Y + 22); gfx->print("POSPONER");
-        gfx->setTextSize(2);
-        gfx->setCursor((LCD_WIDTH - 5 * 12) / 2, SNOOZE_Y + 60); gfx->print("5 min");
+        gfx->fillRoundRect(40, SNOOZE_Y, LCD_WIDTH - 80, SNOOZE_H, 20, PAL_FONDO);
+        AAText::drawCentered(gfx, FONT_XL, CX, SNOOZE_Y + 14, "POSPONER", PAL_BLANCO, PAL_FONDO, 2);
+        AAText::drawCentered(gfx, FONT_S, CX, SNOOZE_Y + 64, "5 MIN", PAL_GRIS, PAL_FONDO, 2);
     }
-    gfx->fillRoundRect(40, OFF_Y, LCD_WIDTH - 80, OFF_H, 20, PAL_TEXTO);
-    gfx->setTextColor(PAL_ALERTA);
-    gfx->setTextSize(4);
-    gfx->setCursor((LCD_WIDTH - 10 * 24) / 2, OFF_Y + (OFF_H - 32) / 2); gfx->print("DESACTIVAR");
+    gfx->fillRoundRect(40, OFF_Y, LCD_WIDTH - 80, OFF_H, 20, PAL_BLANCO);
+    AAText::drawCentered(gfx, FONT_XL, CX, textTopFor(FONT_XL, OFF_Y, OFF_H), "DESACTIVAR", PAL_FONDO, PAL_BLANCO, 2);
 
     bool snoozed = false;
     while (true) {
@@ -978,25 +989,31 @@ bool DisplayUI::ringScreen(const char* title, const char* timeText, bool allowSn
 void DisplayUI::triggerAlarmRinging(int alarmIdx) {
     char t[8];
     snprintf(t, sizeof(t), "%02d:%02d", AlarmManager::alarmList[alarmIdx].hour, AlarmManager::alarmList[alarmIdx].minute);
-    if (ringScreen("ALARMA!", t, true)) AlarmManager::snooze(alarmIdx, 5);
+    if (ringScreen("ALARMA", t, true)) AlarmManager::snooze(alarmIdx, 5);
     // Si se desactiva, la alarma sigue activa: vuelve a sonar mañana a la misma hora.
+}
+
+// --- TOQUES ---
+static bool inBox(int16_t tx, int16_t ty, int x, int y, int w, int h) {
+    return tx >= x && tx <= x + w && ty >= y && ty <= y + h;
 }
 
 void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
     if (currentScreen == SCREEN_SETTINGS) {
-        auto inBtn = [&](int x, int y, int w, int h) { return tx >= x && tx <= x + w && ty >= y && ty <= y + h; };
-        if (inBtn(SET_MINUS_X, SET_BRIGHT_Y, SET_BTN_W, SET_BTN_H)) Settings::setBrightness(Settings::brightness() - 1);
-        else if (inBtn(SET_PLUS_X, SET_BRIGHT_Y, SET_BTN_W, SET_BTN_H)) Settings::setBrightness(Settings::brightness() + 1);
-        else if (inBtn(SET_MINUS_X, SET_VOLUME_Y, SET_BTN_W, SET_BTN_H)) Settings::setAlarmVolume(Settings::alarmVolume() - 1);
-        else if (inBtn(SET_PLUS_X, SET_VOLUME_Y, SET_BTN_W, SET_BTN_H)) Settings::setAlarmVolume(Settings::alarmVolume() + 1);
-        else if (inBtn(60, SET_WIFI_Y, 140, 55)) { TouchDriver::waitForRelease(); WiFiPortal::startPortal(); return; }
-        else if (inBtn(210, SET_WIFI_Y, 140, 55)) {
+        if (inBox(tx, ty, SET_MINUS_X, SET_BRIGHT_Y, SET_BTN_W, SET_BTN_H)) Settings::setBrightness(Settings::brightness() - 1);
+        else if (inBox(tx, ty, SET_PLUS_X, SET_BRIGHT_Y, SET_BTN_W, SET_BTN_H)) Settings::setBrightness(Settings::brightness() + 1);
+        else if (inBox(tx, ty, SET_MINUS_X, SET_VOLUME_Y, SET_BTN_W, SET_BTN_H)) Settings::setAlarmVolume(Settings::alarmVolume() - 1);
+        else if (inBox(tx, ty, SET_PLUS_X, SET_VOLUME_Y, SET_BTN_W, SET_BTN_H)) Settings::setAlarmVolume(Settings::alarmVolume() + 1);
+        else if (inBox(tx, ty, SET_WIFI_X, SET_WIFI_Y, SET_ROW2_W, SET_ROW_H)) {
+            TouchDriver::waitForRelease();
+            WiFiPortal::startPortal();
+            return;
+        } else if (inBox(tx, ty, SET_BATT_X, SET_WIFI_Y, SET_ROW2_W, SET_ROW_H)) {
             TouchDriver::waitForRelease();
             currentScreen = SCREEN_BATTERY;
             drawBatteryScreen();
             return;
-        }
-        else if (inBtn(100, SET_BACK_Y, 210, 55)) {
+        } else if (inBox(tx, ty, SET_BACK_X, SET_BACK_Y, SET_BACK_W, SET_ROW_H)) {
             TouchDriver::waitForRelease();
             currentScreen = SCREEN_PROFILES;
             drawProfileMenu();
@@ -1008,7 +1025,7 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
     }
 
     if (currentScreen == SCREEN_BATTERY) {
-        if (ty < BAT_BTN_Y || ty > BAT_BTN_Y + 50) return;
+        if (ty < BAT_BTN_Y || ty > BAT_BTN_Y + BAT_BTN_H) return;
         if (tx >= 60 && tx <= 200) {
             TouchDriver::waitForRelease();
             BatteryLog::clear();
@@ -1022,7 +1039,7 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
     }
 
     if (currentScreen == SCREEN_WIFI_CONFIG) {
-        if (tx >= 50 && tx <= 350 && ty >= 340 && ty <= 410) {
+        if (inBox(tx, ty, PORTAL_BTN_X, PORTAL_BTN_Y, PORTAL_BTN_W, PORTAL_BTN_H)) {
             TouchDriver::waitForRelease();
             WiFiPortal::stopPortal();      // vuelve al menú y a buscar las redes conocidas
         }
@@ -1031,137 +1048,141 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
 
     if (currentScreen == SCREEN_PROFILES) {
         for (int i = 0; i < 4; i++) {
-            if (tx >= profiles[i].x && tx <= (profiles[i].x + profiles[i].w) &&
-                ty >= profiles[i].y && ty <= (profiles[i].y + profiles[i].h)) {
+            if (inBox(tx, ty, profiles[i].x, profiles[i].y, profiles[i].w, profiles[i].h)) {
                 TouchDriver::waitForRelease();
                 activeProfile = i;
                 currentScreen = SCREEN_DASHBOARD;
+                currentTab = TAB_HOME;
                 drawDashboard();
                 return;
             }
         }
-        if (tx >= 50 && tx <= 360 && ty >= 400 && ty <= 460) {
+        if (inBox(tx, ty, PROF_SET_X, PROF_SET_Y, PROF_SET_W, PROF_SET_H)) {
             TouchDriver::waitForRelease();
             currentScreen = SCREEN_SETTINGS;
             drawSettingsScreen();
             return;
         }
-    } else if (currentScreen == SCREEN_DASHBOARD) {
-        if (ty >= 65 && ty <= 103) {
-            if (tx >= 15 && tx <= 15 + TAB_W) currentTab = TAB_AGENDA;
-            else if (tx >= 20 + TAB_W && tx <= 20 + (TAB_W * 2)) currentTab = TAB_CHRONO;
-            else if (tx >= 25 + (TAB_W * 2) && tx <= 25 + (TAB_W * 3)) currentTab = TAB_MUSIC;
-            else if (tx >= 30 + (TAB_W * 3) && tx <= 390) currentTab = TAB_JARVIS;
+        return;
+    }
 
-            TouchDriver::waitForRelease();
-            drawDashboard();
-            return;
-        }
+    if (currentScreen != SCREEN_DASHBOARD) return;
 
-        if (currentTab == TAB_AGENDA) {
-            if (AlarmManager::alarmCount < MAX_ALARMS &&
-                tx >= NEW_ALARM_X && tx <= NEW_ALARM_X + NEW_ALARM_W &&
-                ty >= NEW_ALARM_Y && ty <= NEW_ALARM_Y + NEW_ALARM_H) {
-                TouchDriver::waitForRelease();
-                currentTab = TAB_ADD_ALARM;
-                drawDashboard();
-                return;
-            }
-            for (int i = 0; i < AlarmManager::alarmCount; i++) {
-                int yPos = ALARM_ROW_Y + i * ALARM_ROW_STEP;
-                if (tx >= 310 && tx <= 355 && ty >= yPos && ty <= yPos + ALARM_ROW_H) {
-                    TouchDriver::waitForRelease();
-                    AlarmManager::deleteAlarm(i);
-                    drawDashboard();
-                    return;
-                }
-                // Tocar la hora (o el texto ACTIVA/INACTIVA) la activa o desactiva.
-                if (tx >= 30 && tx <= 300 && ty >= yPos && ty <= yPos + ALARM_ROW_H) {
-                    TouchDriver::waitForRelease();
-                    AlarmManager::toggleAlarm(i);
-                    drawDashboard();
-                    return;
-                }
-            }
-        }
-
-        if (currentTab == TAB_CHRONO) {
-            bool handled = false;
-            if (ty >= 118 && ty <= 154) {                         // selector de modo
-                chronoShowTimer = (tx >= 205);
-                handled = true;
-            } else if (chronoShowTimer && ty >= 225 && ty <= 270) {   // +1 / +5 / +10 min
-                static const int MINUTES[3] = { 1, 5, 10 };
-                for (int i = 0; i < 3; i++) {
-                    int x = 30 + i * 120;
-                    if (tx >= x && tx <= x + 110) { AlarmManager::timerAdd(MINUTES[i]); handled = true; }
-                }
-            } else if (ty >= 290 && ty <= 340) {                  // INICIAR/PAUSA y RESET
-                if (tx >= 45 && tx <= 175) {
-                    if (chronoShowTimer) AlarmManager::toggleTimer();
-                    else {
-                        AlarmManager::toggleChrono();
-                        if (AlarmManager::isChronoRunning()) StepCounter::sessionStart();
-                        else StepCounter::sessionPause();
-                    }
-                    handled = true;
-                } else if (tx >= 235 && tx <= 365) {
-                    if (chronoShowTimer) AlarmManager::resetTimer();
-                    else { AlarmManager::resetChrono(); StepCounter::sessionReset(); }
-                    handled = true;
-                }
-            }
-            if (handled) {
-                TouchDriver::waitForRelease();
-                drawDashboard();
-                return;
-            }
-        }
-
-        if (currentTab == TAB_ADD_ALARM) {
-            // GUARDAR va primero: ocupa la misma franja vertical que las filas de +/−,
-            // y si esas se revisaban antes se quedaban con el toque.
-            if (tx >= 235 && tx <= 385 && ty >= 220 && ty <= 330) {
-                AlarmManager::addAlarm(tempHour, tempMinute);
-                currentTab = TAB_AGENDA;
-                TouchDriver::waitForRelease();
-                drawDashboard();
-                return;
-            } else if (ty >= 225 && ty <= 270) {
-                if (tx >= 40 && tx <= 125) tempHour = (tempHour + 1) % 24;
-                if (tx >= 140 && tx <= 225) tempMinute = (tempMinute + 1) % 60;
-                TouchDriver::waitForRelease();
-                drawDashboard();
-                return;
-            } else if (ty >= 280 && ty <= 325) {
-                if (tx >= 40 && tx <= 125) tempHour = (tempHour + 23) % 24;
-                if (tx >= 140 && tx <= 225) tempMinute = (tempMinute + 59) % 60;
-                TouchDriver::waitForRelease();
-                drawDashboard();
-                return;
-            }
-        }
-
-        // MÚSICA: la tecla se manda apenas se toca, sin esperar a que se suelte el dedo
-        // (antes waitForRelease frenaba hasta 0,8 s y no se podía apretar rápido).
-        // Mantener VOL+/VOL- repite la tecla. El botón titila en blanco (ver musicTick).
-        if (currentTab == TAB_MUSIC && MediaRemote::isConnected()) {
-            for (int i = 0; i < MUSIC_BUTTON_COUNT; i++) {
-                const MusicButton& b = MUSIC_BUTTONS[i];
-                if (tx >= b.x && tx <= b.x + b.w && ty >= b.y && ty <= b.y + b.h) {
-                    handleMusicButton(i);
-                    return;
-                }
-            }
-            musicHeld = -1;
-        }
-
-        if (tx >= SALIR_X && tx <= SALIR_X + SALIR_W && ty >= BAR_Y && ty <= BAR_Y + 45) {
+    // Arriba: en INICIO, tocar el nombre vuelve a los perfiles; en las demás, a INICIO.
+    if (ty < HDR_H) {
+        if (currentTab == TAB_HOME) {
+            if (tx > 170) return;
             TouchDriver::waitForRelease();
             activeProfile = -1;
             currentScreen = SCREEN_PROFILES;
             drawProfileMenu();
             return;
         }
+        TouchDriver::waitForRelease();
+        currentTab = TAB_HOME;
+        drawDashboard();
+        return;
+    }
+
+    // Botones de abajo: la sección; el de la sección que ya está abierta vuelve a INICIO.
+    if (ty >= NAV_Y - 6 && tx >= NAV_X0 && tx < NAV_X0 + 4 * (NAV_W + NAV_GAP)) {
+        int i = (tx - NAV_X0) / (NAV_W + NAV_GAP);
+        static const WidgetTab TABS[4] = { TAB_AGENDA, TAB_CHRONO, TAB_MUSIC, TAB_JARVIS };
+        currentTab = (i == navIndex(currentTab)) ? TAB_HOME : TABS[i];
+        TouchDriver::waitForRelease();
+        drawDashboard();
+        return;
+    }
+
+    if (currentTab == TAB_AGENDA) {
+        if (AlarmManager::alarmCount < MAX_ALARMS && inBox(tx, ty, CL, newAlarmY(), CW, NEW_ALARM_H)) {
+            TouchDriver::waitForRelease();
+            currentTab = TAB_ADD_ALARM;
+            drawDashboard();
+            return;
+        }
+        for (int i = 0; i < AlarmManager::alarmCount; i++) {
+            int y = ALARM_ROW_Y + i * ALARM_ROW_STEP;
+            if (inBox(tx, ty, ALARM_DEL_X, y, ALARM_DEL_W, ALARM_ROW_H)) {
+                TouchDriver::waitForRelease();
+                AlarmManager::deleteAlarm(i);
+                drawDashboard();
+                return;
+            }
+            // Tocar la tarjeta (hora o interruptor) la activa o desactiva.
+            if (inBox(tx, ty, CL, y, ALARM_CARD_W, ALARM_ROW_H)) {
+                TouchDriver::waitForRelease();
+                AlarmManager::toggleAlarm(i);
+                drawDashboard();
+                return;
+            }
+        }
+    }
+
+    if (currentTab == TAB_CHRONO) {
+        bool handled = false;
+        if (inBox(tx, ty, CL, SEG_Y, CW, SEG_H)) {                       // selector de modo
+            chronoShowTimer = (tx >= CX);
+            handled = true;
+        } else if (chronoShowTimer && ty >= TIMER_BTN_Y && ty <= TIMER_BTN_Y + TIMER_BTN_H) {   // +1 / +5 / +10 min
+            static const int MINUTES[3] = { 1, 5, 10 };
+            for (int i = 0; i < 3; i++) {
+                int x = CL + i * TIMER_BTN_STEP;
+                if (tx >= x && tx <= x + TIMER_BTN_W) { AlarmManager::timerAdd(MINUTES[i]); handled = true; }
+            }
+        } else if (ty >= CHRONO_BTN_Y && ty <= CHRONO_BTN_Y + CHRONO_BTN_H) {   // INICIAR/PAUSA y RESET
+            if (tx >= CL && tx <= CL + CHRONO_BTN_W) {
+                if (chronoShowTimer) AlarmManager::toggleTimer();
+                else {
+                    AlarmManager::toggleChrono();
+                    if (AlarmManager::isChronoRunning()) StepCounter::sessionStart();
+                    else StepCounter::sessionPause();
+                }
+                handled = true;
+            } else if (tx >= CHRONO_BTN2_X && tx <= CR) {
+                if (chronoShowTimer) AlarmManager::resetTimer();
+                else { AlarmManager::resetChrono(); StepCounter::sessionReset(); }
+                handled = true;
+            }
+        }
+        if (handled) {
+            TouchDriver::waitForRelease();
+            drawDashboard();
+            return;
+        }
+    }
+
+    if (currentTab == TAB_ADD_ALARM) {
+        if (inBox(tx, ty, CL, ADD_SAVE_Y, CW, ADD_SAVE_H)) {
+            AlarmManager::addAlarm(tempHour, tempMinute);
+            currentTab = TAB_AGENDA;
+            TouchDriver::waitForRelease();
+            drawDashboard();
+            return;
+        }
+        bool changed = true;
+        if (inBox(tx, ty, ADD_HOUR_X, ADD_PLUS_Y, ADD_COL_W, ADD_BTN_H)) tempHour = (tempHour + 1) % 24;
+        else if (inBox(tx, ty, ADD_MIN_X, ADD_PLUS_Y, ADD_COL_W, ADD_BTN_H)) tempMinute = (tempMinute + 1) % 60;
+        else if (inBox(tx, ty, ADD_HOUR_X, ADD_MINUS_Y, ADD_COL_W, ADD_BTN_H)) tempHour = (tempHour + 23) % 24;
+        else if (inBox(tx, ty, ADD_MIN_X, ADD_MINUS_Y, ADD_COL_W, ADD_BTN_H)) tempMinute = (tempMinute + 59) % 60;
+        else changed = false;
+        if (changed) {
+            drawAddTime(gfx, tempHour, tempMinute);      // solo los números: no parpadea
+            TouchDriver::waitForRelease();
+            return;
+        }
+    }
+
+    // MÚSICA: la tecla se manda apenas se toca, sin esperar a que se suelte el dedo.
+    // Mantener VOL+/VOL- repite la tecla. El botón titila en blanco (ver musicTick).
+    if (currentTab == TAB_MUSIC && MediaRemote::isConnected()) {
+        for (int i = 0; i < MUSIC_BUTTON_COUNT; i++) {
+            const MusicButton& b = MUSIC_BUTTONS[i];
+            if (inBox(tx, ty, b.x, b.y, b.w, b.h)) {
+                handleMusicButton(i);
+                return;
+            }
+        }
+        musicHeld = -1;
     }
 }

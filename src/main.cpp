@@ -12,6 +12,7 @@
 #include "settings.h"
 #include "battery_log.h"
 #include "notifications.h"
+#include "weather.h"
 #include <WiFi.h>
 
 static unsigned long lastClockUpdate = 0;
@@ -71,6 +72,7 @@ void loop() {
     PowerManager::lowPowerTick();         // pantalla apagada hace rato: apaga el WiFi
     StepCounter::loop();                  // los pasos se cuentan en su propia tarea
     TimeSync::loop();
+    Weather::loop();                      // clima para INICIO (cada 30 min, con WiFi)
     AlarmManager::checkAlarms();          // si suena con la pantalla apagada, la enciende
 
     if (DisplayUI::getCurrentScreen() == SCREEN_WIFI_CONFIG) {
@@ -182,12 +184,12 @@ void loop() {
         DisplayUI::refreshNetStatus(wifiChanged);
     }
 
-    // Una vez por segundo: hora, barra inferior (pasos, km, velocidad, batería) y
+    // Una vez por segundo: hora, batería, datos de INICIO (pasos, km, clima, alarma) y
     // cronómetro. Cada uno redibuja solo lo que cambió, así la pantalla no parpadea.
     if (DisplayUI::getCurrentScreen() == SCREEN_DASHBOARD && millis() - lastClockUpdate > 1000) {
         lastClockUpdate = millis();
         DisplayUI::drawHeaderClockOnly();
-        DisplayUI::refreshBottomBar();
+        DisplayUI::refreshLiveData();         // batería y datos de INICIO
         DisplayUI::refreshMusicTab();
         if (AlarmManager::isChronoRunning() || AlarmManager::isTimerRunning()) {
             DisplayUI::refreshChronoDigits();   // solo los dígitos, y solo en la pestaña CRONO

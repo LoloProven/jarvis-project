@@ -94,6 +94,7 @@ enum ScreenState {
 
 // --- TABS DEL DASHBOARD ---
 enum WidgetTab {
+    TAB_HOME,      // INICIO: hora grande, pasos, distancia, clima y próxima alarma
     TAB_AGENDA,    // pestaña ALARMAS: la lista
     TAB_CHRONO,
     TAB_ADD_ALARM, // también ALARMAS: cargar una nueva (botón "+ NUEVA" de la lista)

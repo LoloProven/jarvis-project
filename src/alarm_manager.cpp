@@ -134,7 +134,7 @@ void AlarmManager::checkAlarms() {
     if (timerRunning && getTimerRemaining() == 0) {
         timerRunning = false;
         timerLeftMs = 0;
-        DisplayUI::ringScreen("TIEMPO!", "00:00", false);
+        DisplayUI::ringScreen("TEMPORIZADOR", "00:00", false);
     }
 
     if (snoozeAt != 0 && time(nullptr) >= snoozeAt) {

@@ -13,7 +13,7 @@ public:
     static void drawHeaderClockOnly();
     static void refreshChronoDigits();   // solo si se ve la pestaña CRONO
     static void refreshNetStatus(bool wifiChanged);   // solo si se ve el dashboard
-    static void refreshBottomBar();                   // pasos y batería; solo si se ve el dashboard
+    static void refreshLiveData();                    // batería y, en INICIO, pasos, km, clima y alarma
     static void refreshMusicTab();                    // si cambió la conexión Bluetooth
     static void musicTick();                          // vuelve el color del botón que titiló
     static void drawWifiPortalScreen();
@@ -50,8 +50,6 @@ private:
     static void drawAvatar(int x, int y, uint16_t color, const char* name);
     static void drawChronoDigits();
     static void drawJarvisTab();
-    static void drawNetBox();
-    static void drawBottomBar();
     static void handleMusicButton(int index);
 };
 
