@@ -44,7 +44,9 @@ static void fetchTask(void*) {
             filter["current"]["temperature_2m"] = true;
             filter["current"]["weather_code"] = true;
             DynamicJsonDocument doc(512);
-            if (!deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter)) &&
+            // getString() junta el cuerpo aunque venga "chunked" (getStream() no lo arma).
+            String body = http.getString();
+            if (!deserializeJson(doc, body, DeserializationOption::Filter(filter)) &&
                 doc["current"]["temperature_2m"].is<float>()) {
                 temp = (int)lroundf(doc["current"]["temperature_2m"].as<float>());
                 code = doc["current"]["weather_code"] | -1;

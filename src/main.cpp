@@ -54,6 +54,7 @@ void setup() {
 }
 
 void loop() {
+    DisplayUI::flush();                       // lo dibujado en la vuelta anterior, a la pantalla
     BatteryLog::tick();                       // cuánto tiempo en cada estado (y cada 15 min, el %)
 
     // Modo dormir: duerme de a 1 s y entre medio solo mira PWR y las alarmas.

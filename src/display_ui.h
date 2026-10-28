@@ -32,14 +32,16 @@ public:
     static bool ringScreen(const char* title, const char* timeText, bool allowSnooze);
     static void handleTouch(int16_t x, int16_t y);
 
-    static Arduino_GFX* getGFX();
+    static Arduino_GFX* getGFX();        // la pantalla (prender/apagar, brillo)
+    static void flush();                 // manda a la pantalla lo que cambió en la copia
     static ScreenState getCurrentScreen();
     static void setScreenState(ScreenState state);
     static String getFormattedTime();
 
 private:
     static Arduino_DataBus *bus;
-    static Arduino_GFX *gfx;
+    static Arduino_GFX *panel;   // la pantalla de verdad
+    static Arduino_GFX *gfx;     // copia en la PSRAM donde se dibuja todo (ver flush)
     static ScreenState currentScreen;
     static WidgetTab currentTab;
     static int activeProfile;

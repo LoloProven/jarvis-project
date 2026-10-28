@@ -31,7 +31,7 @@ Arduino_DataBus *DisplayUI::bus = new Arduino_ESP32QSPI(
     LCD_SDIO3 /* SDIO3 */
 );
 
-Arduino_GFX *DisplayUI::gfx = new Arduino_CO5300(
+Arduino_GFX *DisplayUI::panel = new Arduino_CO5300(
     bus,
     LCD_RESET /* RST */,
     0         /* rotation */,
@@ -41,6 +41,39 @@ Arduino_GFX *DisplayUI::gfx = new Arduino_CO5300(
     0  /* col_offset2 */,
     0  /* row_offset2 */
 );
+
+// El CO5300 solo dibuja bien ventanas que empiezan en columna y fila PAR y tienen ancho y
+// alto pares (los ejemplos de Waveshare lo resuelven con un "rounder" en LVGL); si no, las
+// letras y los íconos salen corridos. Por eso todo se dibuja en una copia de la pantalla en
+// la PSRAM y flush() manda los renglones que cambiaron, de a pares y de ancho completo.
+class TrackedCanvas : public Arduino_Canvas {
+public:
+    TrackedCanvas(int16_t w, int16_t h, Arduino_G* out) : Arduino_Canvas(w, h, out) {}
+    int16_t dirtyMin = 32767, dirtyMax = -1;
+    void mark(int16_t y, int16_t h) {
+        if (h <= 0) return;
+        if (y < dirtyMin) dirtyMin = y;
+        if (y + h - 1 > dirtyMax) dirtyMax = y + h - 1;
+    }
+    void writePixelPreclipped(int16_t x, int16_t y, uint16_t c) override {
+        mark(y, 1); Arduino_Canvas::writePixelPreclipped(x, y, c);
+    }
+    void writeFastVLine(int16_t x, int16_t y, int16_t h, uint16_t c) override {
+        mark(y, h); Arduino_Canvas::writeFastVLine(x, y, h, c);
+    }
+    void writeFastHLine(int16_t x, int16_t y, int16_t w, uint16_t c) override {
+        mark(y, 1); Arduino_Canvas::writeFastHLine(x, y, w, c);
+    }
+    void writeFillRectPreclipped(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t c) override {
+        mark(y, h); Arduino_Canvas::writeFillRectPreclipped(x, y, w, h, c);
+    }
+    void draw16bitRGBBitmap(int16_t x, int16_t y, uint16_t* bmp, int16_t w, int16_t h) override {
+        mark(y, h); Arduino_Canvas::draw16bitRGBBitmap(x, y, bmp, w, h);
+    }
+};
+
+static TrackedCanvas* canvas = new TrackedCanvas(LCD_WIDTH, LCD_HEIGHT, DisplayUI::getGFX());
+Arduino_GFX *DisplayUI::gfx = canvas;
 
 ScreenState DisplayUI::currentScreen = SCREEN_PROFILES;
 WidgetTab DisplayUI::currentTab = TAB_HOME;
@@ -252,11 +285,24 @@ static void dateText(char* buf, size_t len) {
 }
 
 void DisplayUI::init() {
-    gfx->begin();
+    panel->begin();
+    if (!canvas->begin(GFX_SKIP_OUTPUT_BEGIN)) Serial.println("[pantalla] sin memoria para la copia");
     Settings::applyBrightness();   // brillo guardado (Settings::load() ya se llamó)
 }
 
-Arduino_GFX* DisplayUI::getGFX() { return gfx; }
+// Manda a la pantalla los renglones que cambiaron desde la última vez.
+void DisplayUI::flush() {
+    if (canvas->dirtyMax < 0) return;
+    int y0 = max(0, (int)canvas->dirtyMin) & ~1;
+    int y1 = min(LCD_HEIGHT - 1, (int)canvas->dirtyMax | 1);
+    canvas->dirtyMin = 32767;
+    canvas->dirtyMax = -1;
+    uint16_t* fb = canvas->getFramebuffer();
+    if (!fb || y1 < y0) return;
+    panel->draw16bitRGBBitmap(0, y0, fb + y0 * LCD_WIDTH, LCD_WIDTH, y1 - y0 + 1);
+}
+
+Arduino_GFX* DisplayUI::getGFX() { return panel; }
 ScreenState DisplayUI::getCurrentScreen() { return currentScreen; }
 void DisplayUI::setScreenState(ScreenState state) { currentScreen = state; }
 
@@ -479,7 +525,11 @@ static void refreshHome(Arduino_GFX* g, bool force) {
         strlcpy(shownAlarm, buf, sizeof(shownAlarm));
         int y = textTopFor(FONT_L, ALARM_CARD_Y, ALARM_CARD_H);
         if (buf[0]) AAText::drawBox(g, FONT_L, CR - 134, y, 120, buf, PAL_BLANCO, PAL_FONDO, RIGHT);
-        else AAText::drawBox(g, FONT_L, CR - 134, y, 120, "ninguna", PAL_GRIS, PAL_FONDO, RIGHT);
+        else {
+            AAText::drawBox(g, FONT_L, CR - 134, y, 120, "", PAL_GRIS, PAL_FONDO, RIGHT);   // borra la hora vieja
+            AAText::drawRight(g, FONT_M, CR - 14, textTopFor(FONT_M, ALARM_CARD_Y, ALARM_CARD_H), "ninguna",
+                              PAL_GRIS, PAL_FONDO);
+        }
     }
 }
 
@@ -896,11 +946,13 @@ void DisplayUI::drawJarvisTab() {
 // Callbacks de Jarvis::ask mientras se habla (el loop está frenado: se dibuja desde acá).
 static void jarvisOnStatus(const char* s) {
     strlcpy(jarvisStatus, s, sizeof(jarvisStatus));
-    drawJarvisStatus(DisplayUI::getGFX());
+    drawJarvisStatus(canvas);
+    DisplayUI::flush();                    // el loop está frenado: se manda desde acá
 }
 static void jarvisOnAnswer() {
     jarvisStatus[0] = 0;
     DisplayUI::refreshCurrentScreen();     // muestra pregunta y respuesta mientras habla
+    DisplayUI::flush();
 }
 
 void DisplayUI::talkToJarvis(bool (*keepRecording)()) {
@@ -920,6 +972,7 @@ void DisplayUI::talkToJarvis(bool (*keepRecording)()) {
             break;
     }
     drawJarvisStatus(gfx);
+    flush();
 }
 
 void DisplayUI::showSleepMessage() {
@@ -927,6 +980,7 @@ void DisplayUI::showSleepMessage() {
     gfx->fillScreen(PAL_FONDO);
     AAText::drawCentered(gfx, FONT_XL, CX, 190, "MODO DORMIR", PAL_BLANCO, PAL_FONDO, 2);
     AAText::drawCentered(gfx, FONT_M, CX, 250, "Tocá para despertar", PAL_GRIS, PAL_FONDO);
+    flush();                               // enseguida se duerme: mandarlo ya
 }
 
 // --- CONFIGURAR WIFI ---
@@ -967,6 +1021,7 @@ bool DisplayUI::ringScreen(const char* title, const char* timeText, bool allowSn
     }
     gfx->fillRoundRect(40, OFF_Y, LCD_WIDTH - 80, OFF_H, 20, PAL_BLANCO);
     AAText::drawCentered(gfx, FONT_XL, CX, textTopFor(FONT_XL, OFF_Y, OFF_H), "DESACTIVAR", PAL_FONDO, PAL_BLANCO, 2);
+    flush();                               // el loop queda frenado mientras suena
 
     bool snoozed = false;
     while (true) {
@@ -983,6 +1038,7 @@ bool DisplayUI::ringScreen(const char* title, const char* timeText, bool allowSn
     currentScreen = previousScreen;
     PowerManager::notifyActivity();   // esto bloquea el loop: reiniciar la inactividad
     refreshCurrentScreen();
+    flush();
     return snoozed;
 }
 
