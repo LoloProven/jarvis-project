@@ -28,8 +28,10 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
 1. INTERFAZ NUEVA: HECHA y probada (rama interfaz-deportiva, 28/10; el usuario dice "se ve bien").
    Estilo "B · Deportivo" de la maqueta https://claude.ai/artifact/MQgD5vN2F1FXvBWUrtpyGj (colores
    en include/palette.h; acentos alternativos anotados ahí). Ideas sueltas: ajustar íconos si hace falta.
-2. Cronómetro y sesión de pasos que sobrevivan a un apagado (PWR 4 s) o reinicio: en la corrida del
-   27/10 se apagó el reloj sin querer y se perdió todo. Guardar inicio/acumulado en NVS o RTC.
+2. Cronómetro, temporizador y sesión de pasos tras un apagado: HECHO y probado (rama
+   crono-persistente, 28/10). alarm_manager.cpp guarda en NVS ("crono") la hora real (RTC) de
+   inicio del crono / fin del temporizador; step_counter.cpp guarda la sesión con los pasos del día
+   (cada 1 min si corre y en cada INICIAR/PAUSA/RESET). AlarmManager::init va después de TimeSync.
 3. BUG: BOOT a veces no responde (ver "BUG ABIERTO" abajo; diagnóstico [boot]/[vivo] en main.cpp).
    Truco para el usuario mientras tanto: reiniciar (PWR 4 s y PWR) y entrar al perfil.
 4. Gimnasio y estudio con Google Sheets (planilla "JARVIS" ya creada, ver abajo): falta la

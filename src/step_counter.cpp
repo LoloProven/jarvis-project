@@ -77,13 +77,26 @@ static int todayKey() {
     return (t.tm_year + 1900) * 400 + t.tm_yday;
 }
 
+// Sesión del cronómetro (ver más abajo). Se guarda junto con los pasos del día, así sobrevive
+// a un apagado (PWR 4 s) o un reinicio: lo acumulado, si corre y desde dónde cuenta.
+static uint32_t sessAccSteps = 0, sessStartSteps = 0;
+static float sessAccMeters = 0, sessStartMeters = 0;
+static bool sessRunning = false;
+static volatile bool saveSoon = false;     // la sesión cambió: guardar en la próxima vuelta
+
 static void save() {
     stepPrefs.begin("steps", false);
     stepPrefs.putInt("day", dayKey);
     stepPrefs.putUInt("base", stepCount);
     stepPrefs.putFloat("metros", distanceM);
+    stepPrefs.putBool("s_on", sessRunning);
+    stepPrefs.putUInt("s_acc", sessAccSteps);
+    stepPrefs.putFloat("s_accm", sessAccMeters);
+    stepPrefs.putUInt("s_ini", sessStartSteps);
+    stepPrefs.putFloat("s_inim", sessStartMeters);
     stepPrefs.end();
     dirty = false;
+    saveSoon = false;
 }
 
 static void countStep(unsigned long now) {
@@ -180,6 +193,14 @@ static void dayAndSave() {
         lastDayCheck = now;
         int today = todayKey();
         if (today >= 0 && today != dayKey) {
+            // Sesión corriendo a la medianoche: lo caminado hasta ahora pasa a lo acumulado y
+            // sigue contando desde 0 con el día nuevo.
+            if (sessRunning) {
+                if (stepCount >= sessStartSteps) sessAccSteps += stepCount - sessStartSteps;
+                if (distanceM >= sessStartMeters) sessAccMeters += distanceM - sessStartMeters;
+                sessStartSteps = 0;
+                sessStartMeters = 0;
+            }
             dayKey = today;
             stepCount = 0;
             distanceM = 0;
@@ -187,7 +208,9 @@ static void dayAndSave() {
             save();
         }
     }
-    if (dirty && now - lastSave >= SAVE_MS) {
+    // Con la sesión corriendo se guarda cada minuto (un apagado pierde a lo sumo eso).
+    unsigned long every = sessRunning ? 60000UL : SAVE_MS;
+    if (saveSoon || (dirty && now - lastSave >= every)) {
         lastSave = now;
         save();
     }
@@ -216,11 +239,25 @@ void StepCounter::init() {
     int savedDay = stepPrefs.getInt("day", -1);
     uint32_t savedSteps = stepPrefs.getUInt("base", 0);
     float savedMeters = stepPrefs.getFloat("metros", 0);
+    bool savedOn = stepPrefs.getBool("s_on", false);
+    sessAccSteps = stepPrefs.getUInt("s_acc", 0);
+    sessAccMeters = stepPrefs.getFloat("s_accm", 0);
+    sessStartSteps = stepPrefs.getUInt("s_ini", 0);
+    sessStartMeters = stepPrefs.getFloat("s_inim", 0);
     stepPrefs.end();
     dayKey = todayKey();
     bool sameDay = (savedDay == dayKey && dayKey >= 0);
     stepCount = sameDay ? savedSteps : 0;
     distanceM = sameDay ? savedMeters : 0;
+    // Sesión que corría cuando se apagó: sigue. Si cambió el día, lo del día guardado pasa a
+    // lo acumulado y cuenta desde 0.
+    sessRunning = savedOn;
+    if (sessRunning && !sameDay) {
+        if (savedSteps >= sessStartSteps) sessAccSteps += savedSteps - sessStartSteps;
+        if (savedMeters >= sessStartMeters) sessAccMeters += savedMeters - sessStartMeters;
+        sessStartSteps = 0;
+        sessStartMeters = 0;
+    }
 
     // Núcleo 0, como las tareas de red.
     if (sensorOk) xTaskCreatePinnedToCore(stepTask, "steps", 4096, NULL, 2, NULL, 0);
@@ -239,16 +276,15 @@ void StepCounter::pollWhileSleeping() {
 
 // --- SESIÓN (atada al cronómetro) ---
 // Cuenta solo mientras el cronómetro corre: lo acumulado en tramos ya terminados más lo
-// del tramo actual (desde el último INICIAR). Los datos del día no se tocan.
-static uint32_t sessAccSteps = 0, sessStartSteps = 0;
-static float sessAccMeters = 0, sessStartMeters = 0;
-static bool sessRunning = false;
+// del tramo actual (desde el último INICIAR). Los datos del día no se tocan. Cada cambio
+// se guarda enseguida (saveSoon).
 
 void StepCounter::sessionStart() {
     if (sessRunning) return;
     sessStartSteps = stepCount;
     sessStartMeters = distanceM;
     sessRunning = true;
+    saveSoon = true;
 }
 
 void StepCounter::sessionPause() {
@@ -256,12 +292,14 @@ void StepCounter::sessionPause() {
     sessAccSteps += stepCount - sessStartSteps;
     sessAccMeters += distanceM - sessStartMeters;
     sessRunning = false;
+    saveSoon = true;
 }
 
 void StepCounter::sessionReset() {
     sessRunning = false;
     sessAccSteps = 0;
     sessAccMeters = 0;
+    saveSoon = true;
 }
 
 uint32_t StepCounter::sessionSteps() {

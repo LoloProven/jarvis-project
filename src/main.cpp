@@ -39,12 +39,12 @@ void setup() {
     BatteryLog::init();
     pinMode(JARVIS_BUTTON, INPUT_PULLUP);
     DisplayUI::init();
-    AlarmManager::init();
     AudioManager::init();
 
     // Zona horaria y hora de respaldo; tiene que ir antes de conectar el WiFi
     // para no perderse el evento de conexión.
     TimeSync::init();
+    AlarmManager::init();          // después de TimeSync: el crono recuperado necesita la hora real
     StepCounter::init();           // después de TimeSync: necesita la fecha para saber qué día es
     NetStatus::init();
     MediaRemote::init();           // Bluetooth: control de la música del celular
