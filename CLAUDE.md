@@ -260,6 +260,12 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
 - Esquinas redondeadas: tapan ~50 px a cada lado arriba y abajo; usar SAFE_MARGIN_X/TOP (config.h).
   Texto tamaño 1 es ilegible en esta pantalla: mínimo tamaño 2. La letra no tiene tildes ni ñ.
 - Redibujar solo lo que cambia (texto con fondo, sin borrar antes) o la pantalla parpadea.
+- El CO5300 solo dibuja bien ventanas con columna/fila de inicio PAR y ancho/alto pares (Waveshare usa
+  un "rounder" en LVGL); si no, letras e íconos salen deformados. Por eso display_ui dibuja todo en una
+  copia en la PSRAM (TrackedCanvas, DisplayUI::gfx) y DisplayUI::flush() manda los renglones cambiados de
+  a pares (lo llama el loop al empezar; donde el loop queda frenado, llamarlo a mano). getGFX() = el panel.
+- Letra: Barlow Condensed suavizada (src/aa_text.*, include/fonts/, generada con tools/fontgen.py y
+  freetype-py en D:\fontgen-venv). Textos en UTF-8 con tildes. La tabla de BATERIA usa la letra vieja.
 - Bluetooth: usar NimBLE-Arduino (h2zero), no la librería BLE del core: con NimBLE descarta la
   segunda característica HID 0x2A4D (handle 65535 y cuelgue al notificar). iOS necesita teclado +
   multimedia y una pausa de ~30 ms entre apretar y soltar la tecla. Al cambiar el descriptor HID hay
