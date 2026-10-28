@@ -7,6 +7,10 @@
 
 class AlarmManager {
 public:
+    // Estado del cronómetro (públicos para guardarlo/recuperarlo en alarm_manager.cpp).
+    static bool chronoRunning;
+    static unsigned long chronoStartTime;
+    static unsigned long chronoElapsedTime;
     static void init();
     static void checkAlarms();
     static void addAlarm(int h, int m);
@@ -34,9 +38,6 @@ public:
 
 private:
     static void save();
-    static bool chronoRunning;
-    static unsigned long chronoStartTime;
-    static unsigned long chronoElapsedTime;
 };
 
 #endif

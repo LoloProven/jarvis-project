@@ -2,6 +2,8 @@
 #include "display_ui.h"
 #include "time.h"
 #include <Preferences.h>
+#include <sys/time.h>
+#include "time_sync.h"
 
 AlarmItem AlarmManager::alarmList[MAX_ALARMS];
 int AlarmManager::alarmCount = 0;
@@ -13,6 +15,64 @@ unsigned long AlarmManager::chronoElapsedTime = 0;
 // reiniciar o apagar el reloj: 3 bytes por alarma (hora, minuto, activa).
 static Preferences alarmPrefs;
 static const char* ALARM_NS = "alarms";
+
+// --- CRONÓMETRO Y TEMPORIZADOR QUE SOBREVIVEN A UN APAGADO ---
+// Mientras el reloj anda se usa millis(); en la memoria (NVS) se guarda la hora real (del
+// RTC, que sigue contando apagado) en que arrancó el cronómetro o termina el temporizador.
+// Al prender se recalcula con la hora actual: el tiempo apagado también cuenta.
+static bool timerRunning = false;
+static unsigned long timerEndMs = 0;
+static unsigned long timerLeftMs = 0;
+
+static int64_t nowEpochMs() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+static void saveChrono() {
+    alarmPrefs.begin("crono", false);
+    alarmPrefs.putBool("c_on", AlarmManager::chronoRunning);
+    alarmPrefs.putULong("c_acc", AlarmManager::chronoElapsedTime);
+    // Hora real en que arrancó el tramo actual.
+    alarmPrefs.putLong64("c_ini", nowEpochMs() - (int64_t)(millis() - AlarmManager::chronoStartTime));
+    alarmPrefs.putBool("t_on", timerRunning);
+    alarmPrefs.putULong("t_left", timerLeftMs);
+    alarmPrefs.putLong64("t_fin", nowEpochMs() + (int64_t)(long)(timerEndMs - millis()));
+    alarmPrefs.end();
+}
+
+static void loadChrono() {
+    alarmPrefs.begin("crono", true);
+    bool cOn = alarmPrefs.getBool("c_on", false);
+    AlarmManager::chronoElapsedTime = alarmPrefs.getULong("c_acc", 0);
+    int64_t cIni = alarmPrefs.getLong64("c_ini", 0);
+    bool tOn = alarmPrefs.getBool("t_on", false);
+    timerLeftMs = alarmPrefs.getULong("t_left", 0);
+    int64_t tFin = alarmPrefs.getLong64("t_fin", 0);
+    alarmPrefs.end();
+
+    // Sin hora confiable (RTC sin pila y sin internet todavía) no se puede saber cuánto pasó:
+    // queda en pausa con lo que tenía.
+    bool timeOk = TimeSync::isSynced();
+    int64_t now = nowEpochMs();
+    if (cOn) {
+        int64_t ran = now - cIni;
+        if (timeOk && ran >= 0 && ran < 7LL * 24 * 3600 * 1000) {
+            AlarmManager::chronoRunning = true;
+            AlarmManager::chronoStartTime = millis() - (unsigned long)ran;
+        }
+    }
+    if (tOn) {
+        int64_t left = tFin - now;
+        if (timeOk) {
+            timerRunning = true;               // si ya pasó, suena enseguida
+            timerEndMs = millis() + (unsigned long)(left > 0 ? left : 0);
+        }
+    }
+    Serial.printf("[crono] recuperado: crono %s %lu ms, temporizador %s\n", AlarmManager::chronoRunning ? "corriendo" : "quieto",
+                  AlarmManager::getChronoTime(), timerRunning ? "corriendo" : "quieto");
+}
 
 void AlarmManager::init() {
     alarmCount = 0;
@@ -31,6 +91,7 @@ void AlarmManager::init() {
         }
     }
     alarmPrefs.end();
+    loadChrono();          // después de TimeSync::init (main.cpp): necesita la hora real
 }
 
 void AlarmManager::save() {
@@ -84,19 +145,18 @@ void AlarmManager::snooze(int index, int minutes) {
 
 // --- TEMPORIZADOR ---
 // Corriendo: termina en timerEndMs (millis). En pausa: quedan timerLeftMs.
-static bool timerRunning = false;
-static unsigned long timerEndMs = 0;
-static unsigned long timerLeftMs = 0;
 
 void AlarmManager::timerAdd(int minutes) {
     if (timerRunning) timerEndMs += minutes * 60000UL;
     else timerLeftMs += minutes * 60000UL;
+    saveChrono();
 }
 
 void AlarmManager::startTimer(unsigned long seconds) {
     timerRunning = true;
     timerLeftMs = 0;
     timerEndMs = millis() + seconds * 1000UL;
+    saveChrono();
 }
 
 int AlarmManager::findAlarm(int h, int m) {
@@ -114,11 +174,13 @@ void AlarmManager::toggleTimer() {
         timerEndMs = millis() + timerLeftMs;
         timerRunning = true;
     }
+    saveChrono();
 }
 
 void AlarmManager::resetTimer() {
     timerRunning = false;
     timerLeftMs = 0;
+    saveChrono();
 }
 
 bool AlarmManager::isTimerRunning() { return timerRunning; }
@@ -134,6 +196,7 @@ void AlarmManager::checkAlarms() {
     if (timerRunning && getTimerRemaining() == 0) {
         timerRunning = false;
         timerLeftMs = 0;
+        saveChrono();
         DisplayUI::ringScreen("TEMPORIZADOR", "00:00", false);
     }
 
@@ -169,11 +232,13 @@ void AlarmManager::toggleChrono() {
         chronoElapsedTime += millis() - chronoStartTime;
         chronoRunning = false;
     }
+    saveChrono();
 }
 
 void AlarmManager::resetChrono() {
     chronoRunning = false;
     chronoElapsedTime = 0;
+    saveChrono();
 }
 
 bool AlarmManager::isChronoRunning() { return chronoRunning; }
