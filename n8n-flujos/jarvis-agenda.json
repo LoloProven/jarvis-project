@@ -1,0 +1,71 @@
+{
+  "id": "jarvisAgenda0001",
+  "name": "JARVIS agenda (página del reloj)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "jarvis-agenda",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Pedido del reloj",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0],
+      "webhookId": "5d0c8a51-7a4e-4b8e-9d55-1f6c2b7a0a01",
+      "credentials": {
+        "httpHeaderAuth": { "id": "jarvisClaveReloj", "name": "Clave reloj JARVIS" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": { "__rl": true, "value": "TU_CALENDARIO@gmail.com", "mode": "id" },
+        "limit": 40,
+        "timeMin": "={{ $now.startOf('day') }}",
+        "timeMax": "={{ $now.plus({ days: 14 }) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Eventos de 2 semanas",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [220, 0],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": { "id": "sbdk3OXim5ZeFSJW", "name": "Google Calendar account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lista corta para la página del reloj, ordenada por inicio. \"jarvis\" = lo creó JARVIS\n// (el nodo Crear evento del flujo del reloj le pone esa descripción).\nconst eventos = $input.all().map(i => i.json).filter(e => e && e.start).map(e => ({\n  titulo: e.summary || '(sin título)',\n  inicio: e.start.dateTime || e.start.date,\n  fin: (e.end && (e.end.dateTime || e.end.date)) || '',\n  todoElDia: !e.start.dateTime,\n  jarvis: (e.description || '').includes('Creado por JARVIS'),\n  creado: e.created || ''\n}));\neventos.sort((a, b) => new Date(a.inicio) - new Date(b.inicio));\nreturn [{ json: { eventos } }];"
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Armar lista",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [660, 0]
+    }
+  ],
+  "connections": {
+    "Pedido del reloj": { "main": [[{ "node": "Eventos de 2 semanas", "type": "main", "index": 0 }]] },
+    "Eventos de 2 semanas": { "main": [[{ "node": "Armar lista", "type": "main", "index": 0 }]] },
+    "Armar lista": { "main": [[{ "node": "Responder", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

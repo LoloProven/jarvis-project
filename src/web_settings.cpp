@@ -9,8 +9,12 @@
 #include "media_remote.h"
 #include "weather.h"
 #include "display_ui.h"
+#include "jarvis.h"
+#include "config.h"
 #include <WiFi.h>
 #include <WebServer.h>
+#include <HTTPClient.h>
+#include <NetworkClientSecure.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 
@@ -145,6 +149,68 @@ static void handleAlarm() {
     web.send(200, "text/plain", "ok");
 }
 
+// Últimas charlas con JARVIS (las guarda jarvis.cpp).
+static void sendHistory() {
+    markUse();
+    DynamicJsonDocument doc(16384);
+    JsonArray list = doc.createNestedArray("charlas");
+    char buf[24];
+    for (int i = 0; i < Jarvis::historyCount(); i++) {
+        const Jarvis::Talk& t = Jarvis::history(i);
+        time_t when = t.when;
+        struct tm tm;
+        localtime_r(&when, &tm);
+        strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M", &tm);
+        JsonObject o = list.createNestedObject();
+        o["cuando"] = buf;
+        o["pregunta"] = t.question;
+        o["respuesta"] = t.answer;
+        o["acciones"] = t.actions;
+    }
+    String out;
+    serializeJson(doc, out);
+    web.sendHeader("Cache-Control", "no-store");
+    web.send(200, "application/json", out);
+}
+
+// Agenda: el reloj se la pide al flujo "JARVIS agenda" de n8n (por el túnel, con la clave del
+// reloj; así la clave nunca llega al celu). Se guarda 2 min para no pedirla a cada rato.
+static const unsigned long AGENDA_CACHE_MS = 2UL * 60 * 1000;
+static String agendaCache;
+static unsigned long agendaAt = 0;
+
+static void sendAgenda() {
+    markUse();
+    bool fresh = web.hasArg("nueva");
+    if (!fresh && agendaCache.length() && millis() - agendaAt < AGENDA_CACHE_MS) {
+        web.send(200, "application/json", agendaCache);
+        return;
+    }
+    NetworkClientSecure client;
+    client.setInsecure();                   // como JARVIS: lo protege la clave
+    HTTPClient http;
+    http.setTimeout(10000);
+    http.setConnectTimeout(8000);
+    int code = -1;
+    String body;
+    if (http.begin(client, String(JARVIS_URL) + "-agenda")) {
+        http.addHeader("X-Jarvis-Clave", JARVIS_KEY);
+        http.addHeader("ngrok-skip-browser-warning", "1");
+        code = http.GET();
+        if (code == 200) body = http.getString();
+        http.end();
+    }
+    Serial.printf("[web] agenda: HTTP %d (%u bytes)\n", code, (unsigned)body.length());
+    if (code == 200 && body.startsWith("{")) {
+        agendaCache = body;
+        agendaAt = millis();
+        web.send(200, "application/json", body);
+    } else {
+        // n8n apagado, sin túnel o sin internet: la página lo explica.
+        web.send(200, "application/json", String("{\"error\":") + code + "}");
+    }
+}
+
 static void setRoutes() {
     web.on("/", HTTP_GET, []() {
         markUse();
@@ -153,6 +219,8 @@ static void setRoutes() {
     web.on("/api/estado", HTTP_GET, sendState);
     web.on("/api/ajuste", HTTP_POST, handleSetting);
     web.on("/api/alarma", HTTP_POST, handleAlarm);
+    web.on("/api/historial", HTTP_GET, sendHistory);
+    web.on("/api/agenda", HTTP_GET, sendAgenda);
     web.on("/icono.png", HTTP_GET, []() {
         web.sendHeader("Cache-Control", "max-age=604800");
         web.send_P(200, "image/png", (const char*)WEB_ICON_PNG, sizeof(WEB_ICON_PNG));

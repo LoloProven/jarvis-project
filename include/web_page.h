@@ -65,6 +65,16 @@ th:first-child,td:first-child{text-align:left}
 .gasto b{display:block;font-size:26px}
 .gasto span{color:var(--gris);font-size:14px;letter-spacing:1px}
 .aviso{color:var(--gris);font-size:16px;line-height:1.3}
+.sub{font-size:14px;letter-spacing:1px;color:#666;margin-left:6px}
+.dia{font-size:15px;font-weight:700;letter-spacing:2px;color:var(--acento);margin:14px 0 6px}
+.evento{display:flex;gap:12px;align-items:baseline}
+.evento .hs{font-size:22px;font-weight:800;min-width:58px;font-variant-numeric:tabular-nums}
+.evento .t{font-size:20px;font-weight:600;flex:1}
+.jv{display:inline-block;background:var(--acento);color:#000;font-size:12px;font-weight:800;letter-spacing:1px;border-radius:5px;padding:0 6px;margin-left:6px;vertical-align:middle}
+.charla .q{color:var(--gris);font-size:17px}
+.charla .r{font-size:19px;margin-top:4px;line-height:1.25}
+.charla .meta{display:flex;justify-content:space-between;color:#666;font-size:14px;letter-spacing:1px;margin-bottom:4px}
+.hizo{display:inline-block;border:2px solid var(--acento);color:var(--acento);border-radius:6px;font-size:14px;font-weight:700;padding:0 6px;margin:6px 6px 0 0}
 #error{display:none;background:var(--rojo);color:#000;font-weight:700;border-radius:12px;padding:10px 14px;margin-top:12px}
 </style>
 </head>
@@ -76,6 +86,12 @@ th:first-child,td:first-child{text-align:left}
 
   <h2>Consejos</h2>
   <div class="card" id="consejos"></div>
+
+  <h2>Agenda <span class="sub" id="agenda-cuando"></span></h2>
+  <div id="agenda"><div class="card aviso">Cargando la agenda...</div></div>
+
+  <h2>Lo que hizo JARVIS</h2>
+  <div id="historial"></div>
 
   <h2>Funciones</h2>
   <div id="funciones"></div>
@@ -117,6 +133,9 @@ th:first-child,td:first-child{text-align:left}
     <tbody id="registro"></tbody></table>
     <div class="aviso" style="margin-top:8px">Cada 15 min se anota una línea (minutos en cada estado). ⚡ = enchufado.</div>
   </div>
+
+  <h2>Planilla (gimnasio y estudio)</h2>
+  <div class="card aviso">Sin conectar todavía: falta autorizar Google Sheets en n8n. Cuando esté, acá vas a ver la rutina de hoy, los últimos pesos y lo que falta para cada parcial.</div>
 
   <h2>Acceso rápido</h2>
   <div class="card aviso">En el iPhone, tocá <b>Compartir</b> y después <b>Agregar a inicio</b>: queda un ícono de JARVIS para abrir esta página de un toque (el reloj tiene que estar con la pantalla prendida y en el mismo WiFi o en el hotspot del celu).</div>
@@ -206,6 +225,62 @@ function pintar() {
 
 function fallo() { $('error').style.display = 'block'; }
 
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const DIAS = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
+const MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+const hhmm = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+function nombreDia(d) {
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const x = new Date(d); x.setHours(0, 0, 0, 0);
+  const dif = Math.round((x - hoy) / 864e5);
+  const base = `${DIAS[x.getDay()]} ${x.getDate()} ${MESES[x.getMonth()]}`;
+  return dif === 0 ? 'HOY · ' + base : dif === 1 ? 'MAÑANA · ' + base : base;
+}
+
+// Agenda de Google Calendar (hoy y las próximas 2 semanas), vía el reloj y n8n.
+async function cargarAgenda(nueva) {
+  try {
+    const r = await fetch('/api/agenda' + (nueva ? '?nueva=1' : ''), {cache: 'no-store'});
+    const a = await r.json();
+    if (a.error !== undefined) {
+      $('agenda').innerHTML = `<div class="card aviso">No pude traer la agenda (n8n ${a.error < 0 ? 'no responde' : 'respondió ' + a.error}). Tiene que estar la compu prendida con las 3 ventanas de JARVIS abiertas (ngrok, voz y n8n).</div>`;
+      return;
+    }
+    $('agenda-cuando').textContent = 'actualizada ' + hhmm(new Date());
+    if (!a.eventos.length) { $('agenda').innerHTML = '<div class="card aviso">Nada en las próximas 2 semanas.</div>'; return; }
+    let html = '', dia = '';
+    for (const e of a.eventos) {
+      const ini = e.todoElDia ? new Date(e.inicio + 'T00:00') : new Date(e.inicio);
+      const nd = nombreDia(ini);
+      if (nd !== dia) { if (dia) html += '</div>'; html += `<div class="dia">${nd}</div><div class="card">`; dia = nd; }
+      html += `<div class="evento"><div class="hs">${e.todoElDia ? 'TODO' : hhmm(ini)}</div><div class="t">${esc(e.titulo)}${e.jarvis ? '<span class="jv">JARVIS</span>' : ''}</div></div>`;
+    }
+    $('agenda').innerHTML = html + '</div>';
+  } catch (err) {
+    $('agenda').innerHTML = '<div class="card aviso">No pude traer la agenda.</div>';
+  }
+}
+
+// Últimas charlas con JARVIS (las guarda el reloj).
+const ACCIONES = [[/^ALARMA (\d+:\d+)/, m => 'Alarma ' + m[1]], [/^BORRAR (\d+:\d+)/, m => 'Borró alarma ' + m[1]],
+  [/^TIMER (\d+)/, m => 'Temporizador ' + Math.round(m[1] / 60) + ' min'], [/^CRONO (\w+)/, m => 'Cronómetro: ' + m[1].toLowerCase()]];
+async function cargarHistorial() {
+  try {
+    const h = await (await fetch('/api/historial', {cache: 'no-store'})).json();
+    if (!h.charlas.length) { $('historial').innerHTML = '<div class="card aviso">Todavía no le hablaste. Mantené BOOT apretado y hablá.</div>'; return; }
+    $('historial').innerHTML = h.charlas.map(c => {
+      const d = new Date(c.cuando);
+      const hizo = (c.acciones || '').split(';').map(s => s.trim()).filter(Boolean).map(a => {
+        for (const [re, f] of ACCIONES) { const m = a.match(re); if (m) return f(m); }
+        return a;
+      });
+      return `<div class="card charla"><div class="meta"><span>${nombreDia(d)}</span><span>${hhmm(d)}</span></div>
+        <div class="q">“${esc(c.pregunta)}”</div><div class="r">${esc(c.respuesta)}</div>
+        ${hizo.map(x => `<span class="hizo">${esc(x)}</span>`).join('')}</div>`;
+    }).join('');
+  } catch (err) {}
+}
+
 async function cargar() {
   try {
     const r = await fetch('/api/estado', {cache: 'no-store'});
@@ -224,8 +299,12 @@ $('agregar').onclick = () => {
   api('/api/alarma', {accion: 'nueva', h: +h, m: +m}).catch(fallo);
 };
 cargar();
+cargarHistorial();
+cargarAgenda();
 setInterval(() => { if (Date.now() - editando > 3000 && !document.hidden) cargar(); }, 10000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) cargar(); });
+setInterval(() => { if (!document.hidden) cargarHistorial(); }, 30000);
+setInterval(() => { if (!document.hidden) cargarAgenda(); }, 5 * 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { cargar(); cargarHistorial(); } });
 </script>
 </body>
 </html>
