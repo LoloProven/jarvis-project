@@ -13,6 +13,7 @@
 #include "battery_log.h"
 #include "notifications.h"
 #include "weather.h"
+#include "web_settings.h"
 #include <WiFi.h>
 
 static unsigned long lastClockUpdate = 0;
@@ -47,7 +48,7 @@ void setup() {
     AlarmManager::init();          // después de TimeSync: el crono recuperado necesita la hora real
     StepCounter::init();           // después de TimeSync: necesita la fecha para saber qué día es
     NetStatus::init();
-    MediaRemote::init();           // Bluetooth: control de la música del celular
+    if (Settings::bluetooth()) MediaRemote::init();   // Bluetooth: música y avisos del celular
 
     WiFiPortal::initSaved();
     DisplayUI::drawProfileMenu();
@@ -74,6 +75,7 @@ void loop() {
     StepCounter::loop();                  // los pasos se cuentan en su propia tarea
     TimeSync::loop();
     Weather::loop();                      // clima para INICIO (cada 30 min, con WiFi)
+    WebSettings::loop();                  // página de ajustes (http://jarvis.local/), con WiFi
     AlarmManager::checkAlarms();          // si suena con la pantalla apagada, la enciende
 
     if (DisplayUI::getCurrentScreen() == SCREEN_WIFI_CONFIG) {
@@ -87,7 +89,9 @@ void loop() {
     // el usuario). Se cierra tocando, a los NOTICE_MS o, si es una llamada, cuando deja de
     // sonar en el iPhone.
     Notifications::Notice notice;
-    if (Notifications::take(notice) && DisplayUI::getCurrentScreen() != SCREEN_WIFI_CONFIG) {
+    bool gotNotice = Notifications::take(notice);
+    if (gotNotice && !Settings::notifications()) gotNotice = false;     // apagados en la página de ajustes
+    if (gotNotice && DisplayUI::getCurrentScreen() != SCREEN_WIFI_CONFIG) {
         PowerManager::turnScreenOn(false);
         DisplayUI::drawNotification(notice.app, notice.title, notice.message, notice.call);
         noticeShown = true;
@@ -146,7 +150,7 @@ void loop() {
         if (touched) {
             PowerManager::turnScreenOn();  // el primer toque solo despierta
             ignoreUntilRelease = true;
-        } else if (StepCounter::takeWristRaise()) {
+        } else if (StepCounter::takeWristRaise() && Settings::wristRaise()) {
             PowerManager::glanceOn();      // levantó la muñeca: hora grande
             DisplayUI::drawBigClock();
             glanceUntil = millis() + GLANCE_MS;
@@ -197,7 +201,8 @@ void loop() {
         }
     }
 
-    DisplayUI::musicTick();                    // botón de música que titiló: vuelve a celeste
+    DisplayUI::musicTick();                    // botón de música que titiló: vuelve a su color
+    DisplayUI::webTick();                      // pantalla del QR de la página de ajustes
 
     if (touched) {
         DisplayUI::handleTouch(tx, ty);

@@ -9,6 +9,7 @@
 #include "settings.h"
 #include "step_counter.h"
 #include "alarm_manager.h"
+#include "web_settings.h"
 #include <esp_sleep.h>
 #include <esp_timer.h>
 #include <driver/gpio.h>
@@ -74,7 +75,7 @@ void PowerManager::turnScreenOn(bool redraw) {
     lastActivity = millis();
     if (sleeping) {                          // prender la pantalla siempre sale del modo dormir
         sleeping = false;
-        MediaRemote::init();                 // el Bluetooth se apagó al dormir
+        if (Settings::bluetooth()) MediaRemote::init();   // el Bluetooth se apagó al dormir
     }
     if (glance) {                            // venía de un vistazo: el panel ya está prendido
         glance = false;
@@ -102,7 +103,10 @@ void PowerManager::lowPowerTick() {
     // sigue funcionando el vistazo de la muñeca (durmiendo no anda).
     bool active = StepCounter::walkedWithin(180000) ||
                   AlarmManager::isChronoRunning() || AlarmManager::isTimerRunning();
-    if (off > SLEEP_AFTER_MS && !active) enterSleep();
+    // Mientras se usa la página de ajustes desde el celu no se apaga el WiFi ni se duerme.
+    if (WebSettings::inUse()) return;
+    unsigned long sleepAfter = Settings::sleepAfterMs();     // 0 = no dormir solo
+    if (sleepAfter > 0 && off > sleepAfter && !active) enterSleep();
     else if (off > WIFI_OFF_AFTER_MS && !WiFiPortal::isSuspended()) WiFiPortal::suspend();
 }
 
@@ -197,7 +201,7 @@ void PowerManager::checkButton() {
 }
 
 void PowerManager::checkInactivity() {
-    if (!screenOff && millis() - lastActivity > SCREEN_TIMEOUT_MS) {
+    if (!screenOff && millis() - lastActivity > Settings::screenTimeoutMs()) {
         turnScreenOff();
     }
 }

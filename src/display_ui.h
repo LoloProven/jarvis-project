@@ -20,6 +20,8 @@ public:
     static void showSleepMessage();      // aviso antes de entrar en modo dormir
     static void drawSettingsScreen();    // AJUSTES: brillo, volumen y WiFi
     static void drawBatteryScreen();     // registro de la batería (desde AJUSTES)
+    static void drawWebScreen();         // QR de la página de ajustes (desde AJUSTES)
+    static void webTick();               // en el loop: pantalla del QR al día y prendida
     static void drawBigClock();          // hora grande en blanco sobre negro (levantar la muñeca)
     // Notificación del iPhone a pantalla completa; con llamada, botón RECHAZAR abajo.
     static void drawNotification(const char* app, const char* title, const char* message, bool call);
