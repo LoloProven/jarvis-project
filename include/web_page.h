@@ -175,6 +175,10 @@ nav button.activa{color:var(--acento);background:var(--acento-bajo)}
       <div class="card"><div class="etq">CLIMA</div><div class="nombre" id="hoy-clima">–</div></div>
       <div class="card"><div class="etq">PRÓXIMA ALARMA</div><div class="nombre" id="hoy-alarma">–</div></div>
     </div>
+    <div class="card toque" data-ir="comidas">
+      <div class="fila"><div class="etq">AGUA</div><div class="nombre"><span id="hoy-agua">–</span> <span class="desc" id="hoy-agua-d"></span></div></div>
+      <div class="barra-p"><span id="hoy-agua-b" style="width:0;background:var(--azul)"></span></div>
+    </div>
     <div class="card toque" data-ir="estudio" id="hoy-examen" style="display:none"></div>
     <h2>Agenda de hoy <span class="sub" id="agenda-cuando"></span></h2>
     <div id="hoy-agenda"><div class="card aviso">Cargando...</div></div>
@@ -186,7 +190,7 @@ nav button.activa{color:var(--acento);background:var(--acento-bajo)}
   <section id="s-gym">
     <div class="titulo"><div class="chico">GIMNASIO · SOBRECARGA PROGRESIVA</div><h1 id="gym-dia">HOY TOCA</h1></div>
     <div id="gym-hoy"><div class="card aviso">Cargando la planilla...</div></div>
-    <h2>Tu progreso <span class="sub" id="planilla-cuando"></span></h2>
+    <h2>Tus entrenamientos <span class="sub" id="planilla-cuando"></span></h2>
     <div id="gym-prog"></div>
     <div class="card aviso">Cada peso que le decís a JARVIS (“hice jalón al pecho 55 kilos, 4 series de 10”) queda guardado para siempre en tu planilla de Google, pestaña <b>Registro</b>. Con eso calcula con cuánto tirar la próxima: si en todas las series llegaste al tope de repeticiones, subís el peso; si no, mismo peso y una repetición más.</div>
   </section>
@@ -195,6 +199,8 @@ nav button.activa{color:var(--acento);background:var(--acento-bajo)}
   <section id="s-comidas">
     <div class="titulo"><div class="chico">DEFINICIÓN</div><h1>TUS COMIDAS HOY</h1></div>
     <div class="card acento" id="com-resumen"><div class="aviso">Cargando...</div></div>
+    <h2>Agua</h2>
+    <div class="card" id="com-agua"><div class="aviso">Cargando...</div></div>
     <h2>Lo que comiste</h2>
     <div id="com-lista"></div>
     <h2>Tu objetivo</h2>
@@ -460,11 +466,20 @@ function pintarPlanilla() {
       ${t.extras ? `<div class="desc" style="margin-top:10px">+ ${esc(t.extras)}</div>` : ''}</div>
       ${p.ultimoDia ? `<div class="aviso" style="margin:0 4px 6px">Último entrenamiento: ${esc(p.ultimoDia.dia)} el ${esc(p.ultimoDia.fecha)}. Orden: Push → Pull → Piernas.</div>` : ''}`;
   }
-  $('gym-prog').innerHTML = p.historial.length ? '<div class="card">' + p.historial.map(x => {
-    const d = x.ultimo.peso - x.primero;
-    return `<div class="prog"><div class="n"><div>${esc(x.ejercicio)}</div><div class="desc">${kg(x.ultimo.peso)} kg · ${x.ultimo.series}x${esc(x.ultimo.reps)} · ${x.sesiones} ${x.sesiones === 1 ? 'vez' : 'veces'}</div></div>
-      ${spark(x.historia, 70, 26)}<div class="delta" style="min-width:52px;text-align:right">${d > 0 ? '+' + kg(d) + ' kg' : d < 0 ? kg(d) + ' kg' : '='}</div></div>`;
-  }).join('') + '</div>' : '<div class="card aviso">Todavía no anotaste pesos. Al terminar cada ejercicio, decile a JARVIS cuánto hiciste.</div>';
+  // Un cuadro por entrenamiento (el más nuevo arriba), como una planilla.
+  const ses = p.sesiones || [];
+  $('gym-prog').innerHTML = ses.length ? ses.map(s => {
+    const [d, m, a] = s.fecha.split('/').map(Number);
+    const f = new Date(a, m - 1, d), hace = Math.round((new Date().setHours(0, 0, 0, 0) - f) / 864e5);
+    return `<div class="card"><div class="fila" style="margin-bottom:6px"><div><span class="nombre lima">${esc(s.dia || 'Entrenamiento').toUpperCase()}</span>
+        <span class="etq" style="margin-left:6px">${DIAS[f.getDay()].slice(0, 3)} ${d} ${MESES[m - 1]}</span></div>
+        <div class="etq">${hace === 0 ? 'HOY' : hace === 1 ? 'AYER' : 'HACE ' + hace + ' DÍAS'}</div></div>
+      <table><thead><tr><th>Ejercicio</th><th>Kg</th><th>Series</th><th>Reps</th></tr></thead><tbody>
+      ${s.ejercicios.map(x => `<tr><td style="font-size:17px">${esc(x.ejercicio)}${x.notas ? `<div class="desc" style="font-size:13px">${esc(x.notas)}</div>` : ''}</td>
+        <td style="font-weight:700;white-space:nowrap">${kg(x.peso)}${x.cambio === 'sube' ? ' <span class="lima">▲</span>' : x.cambio === 'baja' ? ' <span class="rojo">▼</span>' : ''}</td>
+        <td>${x.series || ''}</td><td>${esc(x.reps)}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }).join('') : '<div class="card aviso">Todavía no anotaste pesos. Al terminar cada ejercicio, decile a JARVIS cuánto hiciste (“press banca 70 kilos, 3 series de 8”).</div>';
 
   // Comidas
   const c = p.comidas, o = c.objetivo, tot = c.total;
@@ -473,11 +488,24 @@ function pintarPlanilla() {
   $('com-resumen').innerHTML = `<div class="fila" style="align-items:center;gap:18px">${anillo(tot.kcal, o.kcal)}
     <div class="macros">${macro('PROTEÍNA', tot.p, o.p, 'var(--acento)')}${macro('CARBOS', tot.c, o.c, 'var(--azul)')}${macro('GRASAS', tot.g, o.g, 'var(--naranja)')}</div></div>
     <div class="desc" style="margin-top:12px;text-align:center">${c.falta.kcal >= 0 ? `Te quedan <b style="color:var(--blanco)">${miles(c.falta.kcal)} kcal</b> y <b style="color:var(--blanco)">${Math.max(0, c.falta.p)} g de proteína</b> para hoy.` : `<span class="rojo">Te pasaste ${miles(-c.falta.kcal)} kcal del objetivo.</span>`}</div>`;
+  // Agua: vasitos de 250 ml que se van llenando.
+  const ag = p.agua || {hoy: [], total: 0, objetivo: 4000, falta: 4000};
+  const lt = ml => (Math.round(ml / 100) / 10).toLocaleString('es-AR', {minimumFractionDigits: 1, maximumFractionDigits: 1});
+  const vasos = Math.ceil(ag.objetivo / 250), llenos = Math.floor(ag.total / 250);
+  $('hoy-agua').textContent = lt(ag.total) + ' L';
+  $('hoy-agua-d').textContent = '/ ' + lt(ag.objetivo) + ' L';
+  $('hoy-agua-b').style.width = Math.min(100, ag.total / ag.objetivo * 100) + '%';
+  $('com-agua').innerHTML = `<div class="fila"><div><span class="grande" style="color:var(--azul)">${lt(ag.total)}</span> <span class="desc">/ ${lt(ag.objetivo)} litros</span></div>
+      <div class="desc" style="text-align:right">${ag.falta > 0 ? `Faltan <b style="color:var(--blanco)">${lt(ag.falta)} L</b><br>≈ ${Math.ceil(ag.falta / 250)} vasos` : '<b class="lima">¡Objetivo cumplido!</b>'}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-top:12px">${Array.from({length: vasos}, (_, i) =>
+      `<svg viewBox="0 0 20 24" style="width:100%;height:28px"><path d="M3 2h14l-2 20H5z" fill="${i < llenos ? 'var(--azul)' : 'none'}" stroke="${i < llenos ? 'var(--azul)' : 'var(--gris2)'}" stroke-width="1.6" stroke-linejoin="round"/></svg>`).join('')}</div>
+    ${ag.hoy.length ? `<div class="desc" style="margin-top:10px">${ag.hoy.map(x => `${esc(x.hora)} · ${miles(x.ml)} ml`).join(' &nbsp; ')}</div>` : '<div class="desc" style="margin-top:10px">Decile a JARVIS “tomé un vaso de agua” o “tomé una botella de medio litro”.</div>'}`;
+
   $('com-lista').innerHTML = c.hoy.length ? '<div class="card">' + c.hoy.map(x => `<div class="comida"><div class="h">${esc(x.hora)}</div>
       <div class="t">${esc(x.comida)}<small>P ${Math.round(x.p)} g · C ${Math.round(x.c)} g · G ${Math.round(x.g)} g</small></div><div class="k">${miles(Math.round(x.kcal))}</div></div>`).join('') + '</div>'
     : '<div class="card aviso">Todavía no anotaste nada hoy. Decile a JARVIS lo que comiste (“comí dos empanadas de carne y una manzana”) y estima las kcal y los macros.</div>';
   $('com-obj').innerHTML = `<b style="color:var(--blanco)">${miles(o.kcal)} kcal · ${o.p} g proteína · ${o.c} g carbos · ${o.g} g grasas</b><br>
-    Calculado para definición con 20 años, 84 kg y 184 cm: mantenimiento ~2.940 kcal (gimnasio 4-5 veces por semana) menos 20 %. Proteína alta (2 g por kg) para no perder músculo. Lo podés cambiar en la pestaña <b>Objetivos</b> de la planilla.`;
+    Calculado para definición con 20 años, 84 kg y 184 cm: mantenimiento ~2.940 kcal (gimnasio 4-5 veces por semana) menos 20 %. Proteína alta (2 g por kg) para no perder músculo. Agua: ${(p.agua ? p.agua.objetivo : 4000) / 1000} L por día (84 kg × 40 ml más lo que perdés entrenando; con tanta proteína conviene no quedarse corto). Lo podés cambiar en la pestaña <b>Objetivos</b> de la planilla.`;
 
   // Estudio
   const ex = p.materias;
