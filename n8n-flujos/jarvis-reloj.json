@@ -92,7 +92,7 @@
         "promptType": "define",
         "text": "={{ $json.text }}",
         "options": {
-          "systemMessage": "=Sos JARVIS, el asistente del reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora: {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d LLLL yyyy HH:mm\", { locale: 'es' }) }}.\n- Calendar: para agendar hace falta título, día y hora de inicio (si no dicen fin, dura 1 h, no lo preguntes); si falta algo, preguntalo. Nunca sin título.\n- Reloj: Poner_alarma, Borrar_alarma, Temporizador (cuenta regresiva), Cronometro (iniciar/pausar/reset). \"A las 7 de la tarde\" = 19:00. Alarmas actuales: {{ $('Webhook reloj').first().json.headers['x-alarmas'] || 'ninguna' }} (máximo 5: si no entran, avisá).\n- Clima: herramienta Clima (Córdoba).\n- Planilla (Google Sheets). Resumen_del_dia trae todo lo de hoy: qué toca en el gimnasio (rotación Push -> Pull -> Piernas) con el último peso, el récord y la \"proxima\" de cada ejercicio (sobrecarga progresiva: decile con cuánto tirar; \"proximas\" tiene todos los ejercicios, aunque no toquen hoy), las comidas de hoy contra el objetivo y los exámenes. Usalo primero; Leer_planilla solo para detalles. Gimnasio: si cuenta lo que hizo (\"banca 60 kilos 4 por 10\"), Anotar_ejercicio (uno por ejercicio, con el nombre exacto de la Rutina). Comidas (está en DEFINICIÓN): si cuenta lo que comió, estimá kcal, proteína, carbos y grasas con porciones típicas argentinas (sin cantidad = una porción normal), Anotar_comida (una por plato) y SIEMPRE después Resumen_del_dia para decir cuánto lleva (\"llevás 669 de 2350 kcal y te faltan 120 g de proteína\"). Agua (objetivo 4 L por día): si dice que tomó agua, Anotar_agua y después Resumen_del_dia (\"llevás 1,5 de 4 litros\"). Si pide borrar o corregir algo anotado (un peso, una comida, agua), Borrar_anotacion (y para corregir, después anotá lo correcto). Estudio: Anotar_examen y Anotar_tema para cargar. \"Tomame examen de X\": leé Temas, UNA pregunta por vez, después corregí y anotá cómo viene con Anotar_tema.\nRespondé en español rioplatense, buena onda, en 1 o 2 oraciones cortas (menos de 250 caracteres), texto plano, sin emojis, listas ni markdown.",
+          "systemMessage": "=Sos JARVIS, el asistente del reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora: {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d LLLL yyyy HH:mm\", { locale: 'es' }) }}.\n- Calendar: para agendar hace falta título, día y hora de inicio (si no dicen fin, dura 1 h, no lo preguntes); si falta algo, preguntalo. Nunca sin título.\n- Reloj: Poner_alarma, Borrar_alarma, Temporizador (cuenta regresiva), Cronometro (iniciar/pausar/reset). \"A las 7 de la tarde\" = 19:00. Alarmas actuales: {{ $('Webhook reloj').first().json.headers['x-alarmas'] || 'ninguna' }} (máximo 5: si no entran, avisá).\n- Clima: herramienta Clima (Córdoba).\n- Planilla (Google Sheets): gimnasio en rotación Push -> Pull -> Piernas; está en DEFINICIÓN. Si cuenta lo que hizo o comió o el agua que tomó, Anotar_ejercicio / Anotar_comida (estimá kcal y macros, porción argentina normal si no dice) / Anotar_agua: devuelven cuánto lleva, decíselo (\"llevás 669 de 2350 kcal\"). Para \"qué toca\", \"con cuánto tiro\" o \"cuánto llevo\", Resumen_del_dia. Borrar o corregir: Borrar_anotacion. Estudio: Anotar_examen, Anotar_tema; \"tomame examen\": Leer_planilla Temas, UNA pregunta por vez.\nRespondé en español rioplatense, buena onda, en 1 o 2 oraciones cortas (menos de 250 caracteres), texto plano, sin emojis, listas ni markdown.",
           "returnIntermediateSteps": true
         },
         "needsFallback": true
@@ -116,7 +116,8 @@
         "responsesApiEnabled": false,
         "options": {
           "temperature": 0.4,
-          "maxTokens": 1500
+          "maxTokens": 2000,
+          "reasoningEffort": "low"
         }
       },
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
@@ -357,14 +358,20 @@
     },
     {
       "parameters": {
-        "modelName": "models/gemini-3.5-flash-lite",
+        "model": {
+          "__rl": true,
+          "value": "openai/gpt-oss-120b",
+          "mode": "id"
+        },
+        "responsesApiEnabled": false,
         "options": {
           "temperature": 0.4,
-          "maxOutputTokens": 1500
+          "maxTokens": 2000,
+          "reasoningEffort": "low"
         }
       },
-      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
-      "typeVersion": 1.1,
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
       "position": [
         420,
         220
@@ -372,15 +379,15 @@
       "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d31",
       "name": "Modelo de respaldo",
       "credentials": {
-        "googlePalmApi": {
-          "id": "Bw1FsFIhxaobnbSh",
-          "name": "Google Gemini(PaLM) Api account"
+        "openAiApi": {
+          "id": "UM2QyzAivfIlBcGb",
+          "name": "OpenAI account"
         }
       }
     },
     {
       "parameters": {
-        "toolDescription": "Lee una pestana de la planilla de Google Sheets del usuario (para detalles; para lo de hoy usa Resumen_del_dia). Comidas: Fecha | Hora | Comida | Kcal | Proteina | Carbos | Grasas. Objetivos: kcal y macros diarios de la definicion y datos del usuario. Rutina: dias Push, Pull y Piernas con sus ejercicios. Registro: Fecha | Dia | Ejercicio | Peso (kg) | Series | Repeticiones | Notas (lo que hizo en el gimnasio). Materias: Materia | Evaluacion | Fecha | Dias que faltan | Notas (finales y parciales). Temas: Materia | Evaluacion | Tema | Detalle | Como vengo | Ultimo repaso.",
+        "toolDescription": "Lee una pestana completa de la planilla (solo para detalles que no estan en Resumen_del_dia): Rutina, Registro, Materias, Temas, Comidas, Objetivos o Agua.",
         "url": "=https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/{{ encodeURIComponent($fromAI(\"pestana\", \"Que pestana leer: Rutina, Registro, Materias, Temas, Comidas u Objetivos\", \"string\")) }}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "googleSheetsOAuth2Api",
@@ -403,14 +410,10 @@
     },
     {
       "parameters": {
-        "toolDescription": "Anota en el Registro del gimnasio un ejercicio que hizo hoy (una llamada por ejercicio).",
-        "method": "POST",
-        "url": "https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/Registro!A%3AG:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleSheetsOAuth2Api",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ values: [[ $now.setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy'), $fromAI(\"dia\", \"Push, Pull o Piernas (segun el ejercicio, ver la Rutina)\", \"string\"), $fromAI(\"ejercicio\", \"Nombre del ejercicio como en la Rutina, por ejemplo Jalon al pecho\", \"string\"), $fromAI(\"peso\", \"Peso en kg (0 si es sin peso)\", \"number\"), $fromAI(\"series\", \"Cantidad de series\", \"number\"), $fromAI(\"repeticiones\", \"Repeticiones por serie, por ejemplo 10 o 12-10-8\", \"string\"), $fromAI(\"notas\", \"Notas opcionales; vacio si no hay\", \"string\") ]] }) }}",
+        "toolDescription": "Anota un ejercicio que hizo hoy (uno por llamada). Devuelve la proxima vez.",
+        "url": "=http://localhost:5678/webhook/jarvis-anotar?pestana=Registro&dia={{ encodeURIComponent($fromAI(\"dia\", \"Push, Pull o Piernas\", \"string\")) }}&ejercicio={{ encodeURIComponent($fromAI(\"ejercicio\", \"Nombre como en la Rutina\", \"string\")) }}&peso={{ encodeURIComponent($fromAI(\"peso\", \"Kg\", \"number\")) }}&series={{ encodeURIComponent($fromAI(\"series\", \"Series\", \"number\")) }}&repeticiones={{ encodeURIComponent($fromAI(\"repeticiones\", \"Reps, ej 10 o 12-10-8\", \"string\")) }}&notas={{ encodeURIComponent($fromAI(\"notas\", \"Opcional\", \"string\")) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequestTool",
@@ -422,15 +425,15 @@
       "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d41",
       "name": "Anotar_ejercicio",
       "credentials": {
-        "googleSheetsOAuth2Api": {
-          "id": "jarvisSheets0001",
-          "name": "Google Sheets JARVIS"
+        "httpHeaderAuth": {
+          "id": "jarvisClaveReloj",
+          "name": "Clave reloj JARVIS"
         }
       }
     },
     {
       "parameters": {
-        "toolDescription": "Agrega un tema de estudio a la pestana Temas (o anota como viene con un tema despues de repasarlo).",
+        "toolDescription": "Agrega un tema de estudio a Temas (o anota como viene despues de repasarlo).",
         "method": "POST",
         "url": "https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/Temas!A%3AF:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
         "authentication": "predefinedCredentialType",
@@ -457,7 +460,7 @@
     },
     {
       "parameters": {
-        "toolDescription": "Agrega un parcial o final a la pestana Materias con su fecha.",
+        "toolDescription": "Agrega un parcial o final a Materias.",
         "method": "POST",
         "url": "https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/Materias!A%3AE:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
         "authentication": "predefinedCredentialType",
@@ -484,14 +487,10 @@
     },
     {
       "parameters": {
-        "toolDescription": "Anota en la pestana Comidas algo que comio hoy, con kcal y macros ESTIMADOS por vos (una llamada por plato o comida). Despues de anotar todo, SIEMPRE llama a Resumen_del_dia para decirle cuanto lleva hoy.",
-        "method": "POST",
-        "url": "https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/Comidas!A%3AG:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleSheetsOAuth2Api",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ values: [[ $now.setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy'), $now.setZone('America/Argentina/Buenos_Aires').toFormat('HH:mm'), $fromAI(\"comida\", \"Que comio, con la cantidad, por ejemplo 2 tostadas con queso crema\", \"string\"), $fromAI(\"kcal\", \"Kcal estimadas\", \"number\"), $fromAI(\"proteina\", \"Gramos de proteina estimados\", \"number\"), $fromAI(\"carbos\", \"Gramos de carbohidratos estimados\", \"number\"), $fromAI(\"grasas\", \"Gramos de grasas estimados\", \"number\") ]] }) }}",
+        "toolDescription": "Anota una comida de hoy con kcal y macros que estimas vos (una por plato). Devuelve lo que lleva hoy: no hace falta Resumen_del_dia.",
+        "url": "=http://localhost:5678/webhook/jarvis-anotar?pestana=Comidas&comida={{ encodeURIComponent($fromAI(\"comida\", \"Que comio y cuanto\", \"string\")) }}&kcal={{ encodeURIComponent($fromAI(\"kcal\", \"Kcal\", \"number\")) }}&proteina={{ encodeURIComponent($fromAI(\"proteina\", \"g proteina\", \"number\")) }}&carbos={{ encodeURIComponent($fromAI(\"carbos\", \"g carbos\", \"number\")) }}&grasas={{ encodeURIComponent($fromAI(\"grasas\", \"g grasas\", \"number\")) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequestTool",
@@ -503,22 +502,18 @@
       "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d44",
       "name": "Anotar_comida",
       "credentials": {
-        "googleSheetsOAuth2Api": {
-          "id": "jarvisSheets0001",
-          "name": "Google Sheets JARVIS"
+        "httpHeaderAuth": {
+          "id": "jarvisClaveReloj",
+          "name": "Clave reloj JARVIS"
         }
       }
     },
     {
       "parameters": {
-        "toolDescription": "Anota agua que tomo hoy en la pestana Agua. Despues SIEMPRE llama a Resumen_del_dia para decirle cuanta lleva.",
-        "method": "POST",
-        "url": "https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/Agua!A%3AD:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "googleSheetsOAuth2Api",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ values: [[ $now.setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy'), $now.setZone('America/Argentina/Buenos_Aires').toFormat('HH:mm'), $fromAI(\"ml\", \"Mililitros: un vaso = 250, una botella chica = 500, un litro = 1000, un mate/termo no cuenta salvo que lo diga\", \"number\"), $fromAI(\"que\", \"Que tomo, por ejemplo vaso de agua o botella\", \"string\") ]] }) }}",
+        "toolDescription": "Anota agua que tomo hoy. Devuelve lo que lleva hoy: no hace falta Resumen_del_dia.",
+        "url": "=http://localhost:5678/webhook/jarvis-anotar?pestana=Agua&ml={{ encodeURIComponent($fromAI(\"ml\", \"Mililitros: vaso 250, botella 500\", \"number\")) }}&que={{ encodeURIComponent($fromAI(\"que\", \"Que tomo\", \"string\")) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequestTool",
@@ -530,15 +525,15 @@
       "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d45",
       "name": "Anotar_agua",
       "credentials": {
-        "googleSheetsOAuth2Api": {
-          "id": "jarvisSheets0001",
-          "name": "Google Sheets JARVIS"
+        "httpHeaderAuth": {
+          "id": "jarvisClaveReloj",
+          "name": "Clave reloj JARVIS"
         }
       }
     },
     {
       "parameters": {
-        "toolDescription": "Borra de la planilla lo ULTIMO anotado que coincida (un ejercicio del Registro, una comida o agua). Usalo cuando pide borrar, sacar o corregir algo que anoto; para corregir, borra y despues anota lo correcto.",
+        "toolDescription": "Borra lo ULTIMO anotado que coincida (ejercicio, comida o agua). Para corregir: borra y anota de nuevo.",
         "url": "=http://localhost:5678/webhook/jarvis-borrar?pestana={{ encodeURIComponent($fromAI(\"pestana\", \"Registro (gimnasio), Comidas o Agua\", \"string\")) }}&buscar={{ encodeURIComponent($fromAI(\"buscar\", \"Palabras de lo que hay que borrar, por ejemplo press banca o manzana; vacio = lo ultimo anotado\", \"string\")) }}",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
@@ -561,8 +556,8 @@
     },
     {
       "parameters": {
-        "toolDescription": "Resumen de HOY desde la planilla: dia de gimnasio que toca con ultimo peso, record y \"proxima\" (con cuanto tirar) de cada ejercicio; \"proximas\" = con cuanto tirar en CUALQUIER ejercicio de la rutina; historial de pesos; comidas de hoy con total, objetivo y lo que falta (kcal, p = proteina, c = carbos, g = grasas); agua de hoy en ml con objetivo y lo que falta; examenes con los dias que faltan.",
-        "url": "=http://localhost:5678/webhook/jarvis-planilla?para={{ encodeURIComponent($fromAI(\"para\", \"Para que lo pedis: gimnasio, comidas o examenes\", \"string\")) }}",
+        "toolDescription": "Lo de hoy desde la planilla. para=gimnasio: que toca, \"proximas\" (con cuanto tirar en cada ejercicio) y ultimos entrenamientos; para=comidas: kcal, macros y agua de hoy vs objetivo; para=examenes: dias que faltan.",
+        "url": "=http://localhost:5678/webhook/jarvis-planilla?para={{ encodeURIComponent($fromAI(\"para\", \"gimnasio, comidas o examenes\", \"string\")) }}",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {}
