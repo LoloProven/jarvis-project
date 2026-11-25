@@ -40,9 +40,24 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
    El cliente OAuth y la API de Sheets están en el proyecto de Google Cloud "Jervis-Server" de la
    cuenta de la FACU (en la consola es la segunda cuenta: authuser=1). La planilla "JARVIS" es del
    Gmail personal y está compartida como Editor con la cuenta de la facu (probado: la API la lee).
-   FALTA: herramientas del agente (anotar pesos, qué toca hoy, temas) y la sección "Planilla" de la
-   página (hoy dice "Sin conectar todavía"); la rutina y los programas de las materias los pasa el
-   usuario; fecha del parcial de IA.
+   HECHO (rama planilla-jarvis, 25/11; probado en el reloj: JARVIS anota y la página la muestra):
+   herramientas del agente (httpRequestTool a la API de Sheets con la credencial): Leer_planilla,
+   Anotar_ejercicio, Anotar_tema, Anotar_examen. Rutina = Push/Pull/Piernas en rotación (lo que
+   toca = el día que sigue al último del Registro). Registro: Fecha | Día | Ejercicio | Peso | Series
+   | Repeticiones | Notas. Materias con los finales de nov/dic (fórmula con ; porque la planilla
+   está en español). Flujo n8n-flujos/jarvis-planilla.json (GET /webhook/jarvis-planilla) ->
+   /api/planilla del reloj -> la página. COMIDAS (dieta de DEFINICIÓN; usuario 20 años, 84 kg,
+   184 cm): pestaña Comidas (Fecha | Hora | Comida | Kcal | Proteína | Carbos | Grasas), la IA
+   estima macros con Anotar_comida; pestaña Objetivos: 2350 kcal, 168 P, 269 C, 67 G (Mifflin
+   ~1895, x1,55 = ~2940, -20 %). Resumen_del_dia = herramienta que llama al propio webhook
+   jarvis-planilla por localhost:5678 (con la clave del reloj): toca hoy + "proxima" de cada
+   ejercicio (doble progresión: todas las series al tope del rango -> +2,5 kg (2 o 1 si es
+   liviano) y vuelve a 8; si no, mismo peso +1 rep), "proximas" de toda la rutina, comidas de hoy
+   vs objetivo, AGUA (pestaña Agua: Fecha | Hora | Mililitros | Qué; objetivo 4000 ml en Objetivos; Anotar_agua) y exámenes. Borrar_anotacion -> flujo n8n-flujos/jarvis-borrar.json (GET /webhook/jarvis-borrar?pestana=Registro|Comidas|Agua&buscar=..., por localhost con la clave): borra la ÚLTIMA fila que tenga todas esas palabras. Gimnasio en la página = un cuadro por entrenamiento ("sesiones", ▲▼ vs la vez anterior). La página vuelve a pedir la planilla cuando cambia "ultimaCharla" de /api/estado. PÁGINA nueva por pestañas abajo (HOY, GIMNASIO, COMIDAS, ESTUDIO,
+   RELOJ); maqueta para verla sin el reloj: un server node con datos de ejemplo. FALTA: programas de
+   las materias para cargar Temas; series x reps reales de la rutina (dice "3 x 8-12 a ajustar").
+   Para editar la planilla desde Claude: pedir un token con el refresh_token de la credencial
+   (export:credentials a D:\temp, borrar enseguida) y usar la API de Sheets.
 5. PÁGINA DE AJUSTES (rama pagina-ajustes, probada en el iPhone 24/11; sin PR todavía): el reloj
    sirve http://jarvis.local/ (src/web_settings.cpp, página en include/web_page.h, ícono
    include/web_icon.h con tools/icongen.py). AJUSTES > CELU muestra un QR (librería qrcode del
@@ -280,6 +295,9 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
   que "Olvidar este dispositivo" en el iPhone y volver a vincular.
 - Con Bluetooth prendido el chip no puede entrar en sueño liviano (se traba): el modo dormir hace
   MediaRemote::stop() y al despertar MediaRemote::init().
+- TLS con la pantalla apagada: la CPU va a 80 MHz y el saludo TLS tarda tanto que ngrok corta
+  (-29312 "connection indicated an EOF"). web_settings.cpp sube a 240 MHz mientras pide la agenda
+  o la planilla (en una tarea aparte; la página recibe {"cargando":1} y vuelve a preguntar).
 - SensorLib 0.2.x usa init() en vez de begin() (los ejemplos de Waveshare usan una versión más nueva).
 - El hotspot del iPhone: nombre exacto con mayúsculas ("iPhoneLolo"), "Maximizar compatibilidad"
   activado y la pantalla de Compartir Internet abierta para que se vea.

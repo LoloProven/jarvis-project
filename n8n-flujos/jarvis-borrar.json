@@ -1,0 +1,246 @@
+{
+  "id": "jarvisBorrar0001",
+  "name": "JARVIS borrar (herramienta)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "jarvis-borrar",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "c1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Pedido",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "7f2eac73-9c60-4da0-9f77-3b8e4d9c2c03",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jarvisClaveReloj",
+          "name": "Clave reloj JARVIS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Qué pestaña y qué buscar (?pestana=Registro|Comidas|Agua&buscar=press banca).\nconst q = $json.query || {};\nconst PESTANAS = { registro: ['Registro', 353537118], comidas: ['Comidas', 2124048794], agua: ['Agua', 534786565] };\nconst norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').trim();\nconst p = PESTANAS[norm(q.pestana).replace('comida', 'comidas').replace('comidass', 'comidas')] || PESTANAS.registro;\nreturn [{ json: { pestana: p[0], sheetId: p[1], buscar: norm(q.buscar) } }];"
+      },
+      "id": "c1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Preparar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/{{ $json.pestana }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {}
+      },
+      "id": "c1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Leer pestaña",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jarvisSheets0001",
+          "name": "Google Sheets JARVIS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// La última fila (la más nueva) cuyo texto contiene lo buscado; sin texto, la última de todas.\nconst pr = $('Preparar').first().json;\nconst filas = $json.values || [];\nconst norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').trim();\nconst palabras = pr.buscar.split(/\\s+/).filter(w => w.length > 2);\nlet fila = -1;\nfor (let i = filas.length - 1; i >= 1; i--) {\n  const t = norm(filas[i].join(' '));\n  if (!t) continue;\n  if (!palabras.length || palabras.every(w => t.includes(w))) { fila = i; break; }\n}\nreturn [{ json: { ...pr, fila, encontrado: fila >= 1, texto: fila >= 1 ? filas[fila].filter(Boolean).join(' | ') : '' } }];"
+      },
+      "id": "c1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Buscar fila",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.encontrado }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c1b2c3d4-0005-4000-8000-000000000005",
+      "name": "¿Encontró?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId: $json.sheetId, dimension: \"ROWS\", startIndex: $json.fila, endIndex: $json.fila + 1 } } }] }) }}",
+        "options": {}
+      },
+      "id": "c1b2c3d4-0006-4000-8000-000000000006",
+      "name": "Borrar fila",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        -100
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jarvisSheets0001",
+          "name": "Google Sheets JARVIS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=Borrado de {{ $('Buscar fila').first().json.pestana }}: {{ $('Buscar fila').first().json.texto }}",
+        "options": {}
+      },
+      "id": "c1b2c3d4-0007-4000-8000-000000000007",
+      "name": "Avisar borrado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=No encontré nada parecido a \"{{ $json.buscar }}\" en {{ $json.pestana }}",
+        "options": {}
+      },
+      "id": "c1b2c3d4-0008-4000-8000-000000000008",
+      "name": "Avisar no encontrado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1000,
+        100
+      ]
+    }
+  ],
+  "connections": {
+    "Pedido": {
+      "main": [
+        [
+          {
+            "node": "Preparar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar": {
+      "main": [
+        [
+          {
+            "node": "Leer pestaña",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer pestaña": {
+      "main": [
+        [
+          {
+            "node": "Buscar fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar fila": {
+      "main": [
+        [
+          {
+            "node": "¿Encontró?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Encontró?": {
+      "main": [
+        [
+          {
+            "node": "Borrar fila",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar no encontrado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Borrar fila": {
+      "main": [
+        [
+          {
+            "node": "Avisar borrado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

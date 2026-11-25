@@ -1,4 +1,4 @@
-// Carga n8n-flujos/jarvis-reloj.json y jarvis-agenda.json en el n8n del proyecto y los deja activos.
+// Carga n8n-flujos/jarvis-reloj.json, jarvis-agenda.json y jarvis-planilla.json en el n8n del proyecto y los deja activos.
 // Uso (con n8n APAGADO):  node n8n-flujos/importar-jarvis.mjs
 // En el repo el calendario es un marcador (TU_CALENDARIO@gmail.com) para no subir el mail: acá se
 // reemplaza por el calendario del flujo "My workflow" del usuario, leído de la base de n8n.
@@ -27,7 +27,8 @@ const run = (args) => {
     catch (e) { return (e.stdout || '') + (e.stderr || ''); }   // publish sale con código 255 aunque ande
 };
 
-for (const [file, id] of [['jarvis-reloj.json', 'jarvisReloj00001'], ['jarvis-agenda.json', 'jarvisAgenda0001']]) {
+for (const [file, id] of [['jarvis-reloj.json', 'jarvisReloj00001'], ['jarvis-agenda.json', 'jarvisAgenda0001'],
+                          ['jarvis-planilla.json', 'jarvisPlanilla01'], ['jarvis-borrar.json', 'jarvisBorrar0001']]) {
     const flow = readFileSync(path.join(repo, 'n8n-flujos', file), 'utf8')
         .split('TU_CALENDARIO@gmail.com').join(calendar);
     writeFileSync(tmp, flow);                              // sin BOM: n8n no lo acepta
