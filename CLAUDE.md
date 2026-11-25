@@ -40,9 +40,16 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
    El cliente OAuth y la API de Sheets están en el proyecto de Google Cloud "Jervis-Server" de la
    cuenta de la FACU (en la consola es la segunda cuenta: authuser=1). La planilla "JARVIS" es del
    Gmail personal y está compartida como Editor con la cuenta de la facu (probado: la API la lee).
-   FALTA: herramientas del agente (anotar pesos, qué toca hoy, temas) y la sección "Planilla" de la
-   página (hoy dice "Sin conectar todavía"); la rutina y los programas de las materias los pasa el
-   usuario; fecha del parcial de IA.
+   HECHO (rama planilla-jarvis, 25/11; probado con WAV de prueba, falta probar en el reloj):
+   herramientas del agente (httpRequestTool a la API de Sheets con la credencial): Leer_planilla,
+   Anotar_ejercicio, Anotar_tema, Anotar_examen. Rutina = Push/Pull/Piernas en rotación (lo que
+   toca = el día que sigue al último del Registro). Registro: Fecha | Día | Ejercicio | Peso | Series
+   | Repeticiones | Notas. Materias con los finales de nov/dic (fórmula con ; porque la planilla
+   está en español). Flujo n8n-flujos/jarvis-planilla.json (GET /webhook/jarvis-planilla) ->
+   /api/planilla del reloj -> secciones Gimnasio y Exámenes de la página. FALTA: programas de
+   las materias para cargar Temas; series x reps reales de la rutina (dice "3 x 8-12 a ajustar").
+   Para editar la planilla desde Claude: pedir un token con el refresh_token de la credencial
+   (export:credentials a D:\temp, borrar enseguida) y usar la API de Sheets.
 5. PÁGINA DE AJUSTES (rama pagina-ajustes, probada en el iPhone 24/11; sin PR todavía): el reloj
    sirve http://jarvis.local/ (src/web_settings.cpp, página en include/web_page.h, ícono
    include/web_icon.h con tools/icongen.py). AJUSTES > CELU muestra un QR (librería qrcode del
