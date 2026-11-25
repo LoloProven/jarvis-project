@@ -75,6 +75,14 @@ th:first-child,td:first-child{text-align:left}
 .charla .r{font-size:19px;margin-top:4px;line-height:1.25}
 .charla .meta{display:flex;justify-content:space-between;color:#666;font-size:14px;letter-spacing:1px;margin-bottom:4px}
 .hizo{display:inline-block;border:2px solid var(--acento);color:var(--acento);border-radius:6px;font-size:14px;font-weight:700;padding:0 6px;margin:6px 6px 0 0}
+.toca{font-size:34px;font-weight:800;color:var(--acento);line-height:1}
+.ej{font-size:19px;padding:4px 0;border-bottom:1px solid #1a1a1a}
+.ej:last-child{border-bottom:0}
+.examen{display:flex;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid #1a1a1a}
+.examen:last-child{border-bottom:0}
+.examen .n{font-size:30px;font-weight:800;min-width:52px;text-align:center;font-variant-numeric:tabular-nums;line-height:1}
+.examen .n small{display:block;font-size:12px;color:var(--gris);letter-spacing:1px}
+.examen .n.cerca{color:var(--rojo)}
 #error{display:none;background:var(--rojo);color:#000;font-weight:700;border-radius:12px;padding:10px 14px;margin-top:12px}
 </style>
 </head>
@@ -134,8 +142,11 @@ th:first-child,td:first-child{text-align:left}
     <div class="aviso" style="margin-top:8px">Cada 15 min se anota una línea (minutos en cada estado). ⚡ = enchufado.</div>
   </div>
 
-  <h2>Planilla (gimnasio y estudio)</h2>
-  <div class="card aviso">Sin conectar todavía: falta autorizar Google Sheets en n8n. Cuando esté, acá vas a ver la rutina de hoy, los últimos pesos y lo que falta para cada parcial.</div>
+  <h2>Gimnasio <span class="sub" id="planilla-cuando"></span></h2>
+  <div id="gimnasio"><div class="card aviso">Cargando la planilla...</div></div>
+
+  <h2>Exámenes</h2>
+  <div id="examenes"></div>
 
   <h2>Acceso rápido</h2>
   <div class="card aviso">En el iPhone, tocá <b>Compartir</b> y después <b>Agregar a inicio</b>: queda un ícono de JARVIS para abrir esta página de un toque (el reloj tiene que estar con la pantalla prendida y en el mismo WiFi o en el hotspot del celu).</div>
@@ -261,6 +272,41 @@ async function cargarAgenda(nueva) {
   }
 }
 
+// Planilla de Google Sheets (gimnasio y exámenes), vía el reloj y n8n. La edita JARVIS.
+async function cargarPlanilla() {
+  try {
+    const p = await (await fetch('/api/planilla', {cache: 'no-store'})).json();
+    if (p.error !== undefined) {
+      $('gimnasio').innerHTML = `<div class="card aviso">No pude traer la planilla (n8n ${p.error < 0 ? 'no responde' : 'respondió ' + p.error}).</div>`;
+      $('examenes').innerHTML = '';
+      return;
+    }
+    $('planilla-cuando').textContent = 'actualizada ' + hhmm(new Date());
+    let g = '';
+    if (p.toca) {
+      g += `<div class="card"><div class="fila"><div><div class="desc">HOY TOCA</div><div class="toca">${esc(p.toca.dia).toUpperCase()}</div></div>
+        <div class="desc" style="text-align:right">${esc(p.toca.grupo)}<br>${esc(p.toca.series)}</div></div>
+        <div style="margin-top:8px">${p.toca.ejercicios.map(e => `<div class="ej">${esc(e)}</div>`).join('')}</div>
+        ${p.toca.extras ? `<div class="desc" style="margin-top:6px">+ ${esc(p.toca.extras)}</div>` : ''}
+        ${p.ultimoDia ? `<div class="desc" style="margin-top:6px">Último: ${esc(p.ultimoDia.dia)} el ${esc(p.ultimoDia.fecha)}</div>` : ''}</div>`;
+    }
+    if (p.registro.length) {
+      g += `<div class="card" style="overflow-x:auto"><table><thead><tr><th>Fecha</th><th>Ejercicio</th><th>Kg</th><th>Series</th><th>Reps</th></tr></thead><tbody>
+        ${p.registro.map(r => `<tr><td>${esc(r.fecha.slice(0, 5))}</td><td style="text-align:left">${esc(r.ejercicio)}</td><td>${esc(r.peso)}</td><td>${esc(r.series)}</td><td>${esc(r.reps)}</td></tr>`).join('')}
+        </tbody></table></div>`;
+    } else {
+      g += '<div class="card aviso">Todavía no anotaste pesos. Decile a JARVIS, por ejemplo: “hice jalón al pecho 50 kilos, 4 series de 10”.</div>';
+    }
+    $('gimnasio').innerHTML = g;
+    $('examenes').innerHTML = p.materias.length ? '<div class="card">' + p.materias.map(m =>
+      `<div class="examen"><div class="n ${m.faltan !== null && m.faltan <= 7 ? 'cerca' : ''}">${m.faltan === null ? '?' : m.faltan}<small>${m.faltan === 1 ? 'DÍA' : 'DÍAS'}</small></div>
+        <div><div class="nombre" style="font-size:20px">${esc(m.materia)}</div><div class="desc">${esc(m.evaluacion)} · ${esc(m.fecha)}${m.notas ? ' · ' + esc(m.notas) : ''}</div></div></div>`).join('') + '</div>'
+      : '<div class="card aviso">No hay exámenes anotados.</div>';
+  } catch (err) {
+    $('gimnasio').innerHTML = '<div class="card aviso">No pude traer la planilla.</div>';
+  }
+}
+
 // Últimas charlas con JARVIS (las guarda el reloj).
 const ACCIONES = [[/^ALARMA (\d+:\d+)/, m => 'Alarma ' + m[1]], [/^BORRAR (\d+:\d+)/, m => 'Borró alarma ' + m[1]],
   [/^TIMER (\d+)/, m => 'Temporizador ' + Math.round(m[1] / 60) + ' min'], [/^CRONO (\w+)/, m => 'Cronómetro: ' + m[1].toLowerCase()]];
@@ -301,6 +347,8 @@ $('agregar').onclick = () => {
 cargar();
 cargarHistorial();
 cargarAgenda();
+cargarPlanilla();
+setInterval(() => { if (!document.hidden) cargarPlanilla(); }, 5 * 60000);
 setInterval(() => { if (Date.now() - editando > 3000 && !document.hidden) cargar(); }, 10000);
 setInterval(() => { if (!document.hidden) cargarHistorial(); }, 30000);
 setInterval(() => { if (!document.hidden) cargarAgenda(); }, 5 * 60000);

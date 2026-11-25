@@ -173,17 +173,23 @@ static void sendHistory() {
     web.send(200, "application/json", out);
 }
 
-// Agenda: el reloj se la pide al flujo "JARVIS agenda" de n8n (por el túnel, con la clave del
-// reloj; así la clave nunca llega al celu). Se guarda 2 min para no pedirla a cada rato.
-static const unsigned long AGENDA_CACHE_MS = 2UL * 60 * 1000;
-static String agendaCache;
-static unsigned long agendaAt = 0;
+// Agenda y planilla: el reloj se las pide a los flujos "JARVIS agenda" y "JARVIS planilla" de
+// n8n (por el túnel, con la clave del reloj; así la clave nunca llega al celu). Se guardan
+// 2 min para no pedirlas a cada rato.
+static const unsigned long PROXY_CACHE_MS = 2UL * 60 * 1000;
+struct N8nProxy {
+    const char* suffix;                     // se suma a JARVIS_URL: "-agenda" o "-planilla"
+    String cache;
+    unsigned long at;
+};
+static N8nProxy agenda = {"-agenda", "", 0};
+static N8nProxy planilla = {"-planilla", "", 0};
 
-static void sendAgenda() {
+static void sendFromN8n(N8nProxy& p) {
     markUse();
     bool fresh = web.hasArg("nueva");
-    if (!fresh && agendaCache.length() && millis() - agendaAt < AGENDA_CACHE_MS) {
-        web.send(200, "application/json", agendaCache);
+    if (!fresh && p.cache.length() && millis() - p.at < PROXY_CACHE_MS) {
+        web.send(200, "application/json", p.cache);
         return;
     }
     NetworkClientSecure client;
@@ -193,17 +199,17 @@ static void sendAgenda() {
     http.setConnectTimeout(8000);
     int code = -1;
     String body;
-    if (http.begin(client, String(JARVIS_URL) + "-agenda")) {
+    if (http.begin(client, String(JARVIS_URL) + p.suffix)) {
         http.addHeader("X-Jarvis-Clave", JARVIS_KEY);
         http.addHeader("ngrok-skip-browser-warning", "1");
         code = http.GET();
         if (code == 200) body = http.getString();
         http.end();
     }
-    Serial.printf("[web] agenda: HTTP %d (%u bytes)\n", code, (unsigned)body.length());
+    Serial.printf("[web] %s: HTTP %d (%u bytes)\n", p.suffix + 1, code, (unsigned)body.length());
     if (code == 200 && body.startsWith("{")) {
-        agendaCache = body;
-        agendaAt = millis();
+        p.cache = body;
+        p.at = millis();
         web.send(200, "application/json", body);
     } else {
         // n8n apagado, sin túnel o sin internet: la página lo explica.
@@ -220,7 +226,8 @@ static void setRoutes() {
     web.on("/api/ajuste", HTTP_POST, handleSetting);
     web.on("/api/alarma", HTTP_POST, handleAlarm);
     web.on("/api/historial", HTTP_GET, sendHistory);
-    web.on("/api/agenda", HTTP_GET, sendAgenda);
+    web.on("/api/agenda", HTTP_GET, []() { sendFromN8n(agenda); });
+    web.on("/api/planilla", HTTP_GET, []() { sendFromN8n(planilla); });
     web.on("/icono.png", HTTP_GET, []() {
         web.sendHeader("Cache-Control", "max-age=604800");
         web.send_P(200, "image/png", (const char*)WEB_ICON_PNG, sizeof(WEB_ICON_PNG));
