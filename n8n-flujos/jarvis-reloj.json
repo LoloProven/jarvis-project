@@ -92,7 +92,7 @@
         "promptType": "define",
         "text": "={{ $json.text }}",
         "options": {
-          "systemMessage": "=Sos JARVIS, el asistente del reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora: {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d LLLL yyyy HH:mm\", { locale: 'es' }) }}.\n- Calendar: para agendar hace falta título, día y hora de inicio (si no dicen fin, dura 1 h, no lo preguntes); si falta algo, preguntalo. Nunca sin título.\n- Reloj: Poner_alarma, Borrar_alarma, Temporizador (cuenta regresiva), Cronometro (iniciar/pausar/reset). \"A las 7 de la tarde\" = 19:00. Alarmas actuales: {{ $('Webhook reloj').first().json.headers['x-alarmas'] || 'ninguna' }} (máximo 5: si no entran, avisá).\n- Clima: herramienta Clima (Córdoba).\nRespondé en español rioplatense, buena onda, en 1 o 2 oraciones cortas (menos de 250 caracteres), texto plano, sin emojis, listas ni markdown.",
+          "systemMessage": "=Sos JARVIS, el asistente del reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora: {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d LLLL yyyy HH:mm\", { locale: 'es' }) }}.\n- Calendar: para agendar hace falta título, día y hora de inicio (si no dicen fin, dura 1 h, no lo preguntes); si falta algo, preguntalo. Nunca sin título.\n- Reloj: Poner_alarma, Borrar_alarma, Temporizador (cuenta regresiva), Cronometro (iniciar/pausar/reset). \"A las 7 de la tarde\" = 19:00. Alarmas actuales: {{ $('Webhook reloj').first().json.headers['x-alarmas'] || 'ninguna' }} (máximo 5: si no entran, avisá).\n- Clima: herramienta Clima (Córdoba).\n- Planilla (Google Sheets): Leer_planilla lee Rutina, Registro, Materias o Temas. Gimnasio en rotación Push -> Pull -> Piernas: lo que toca hoy es el día que sigue al último del Registro (si hoy ya anotó algo, es ese mismo); decí el día y los ejercicios. Si cuenta lo que hizo (\"banca 60 kilos 4 por 10\"), Anotar_ejercicio (uno por ejercicio). Progreso: compará los pesos del Registro (último vs. antes y récord). Estudio: Materias tiene las fechas y los días que faltan; Anotar_examen y Anotar_tema para cargar. \"Tomame examen de X\": leé Temas, hacé UNA pregunta por vez, después corregí y anotá cómo viene con Anotar_tema.\nRespondé en español rioplatense, buena onda, en 1 o 2 oraciones cortas (menos de 250 caracteres), texto plano, sin emojis, listas ni markdown.",
           "returnIntermediateSteps": true
         },
         "needsFallback": true
@@ -377,6 +377,110 @@
           "name": "Google Gemini(PaLM) Api account"
         }
       }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Lee una pestana de la planilla de Google Sheets del usuario. Rutina: dias Push, Pull y Piernas con sus ejercicios. Registro: Fecha | Dia | Ejercicio | Peso (kg) | Series | Repeticiones | Notas (lo que hizo en el gimnasio). Materias: Materia | Evaluacion | Fecha | Dias que faltan | Notas (finales y parciales). Temas: Materia | Evaluacion | Tema | Detalle | Como vengo | Ultimo repaso.",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/{{ encodeURIComponent($fromAI(\"pestana\", \"Que pestana leer: Rutina, Registro, Materias o Temas\", \"string\")) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1740,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d40",
+      "name": "Leer_planilla",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jarvisSheets0001",
+          "name": "Google Sheets JARVIS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Anota en el Registro del gimnasio un ejercicio que hizo hoy (una llamada por ejercicio).",
+        "method": "POST",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/Registro!A%3AG:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ values: [[ $now.setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy'), $fromAI(\"dia\", \"Push, Pull o Piernas (segun el ejercicio, ver la Rutina)\", \"string\"), $fromAI(\"ejercicio\", \"Nombre del ejercicio como en la Rutina, por ejemplo Jalon al pecho\", \"string\"), $fromAI(\"peso\", \"Peso en kg (0 si es sin peso)\", \"number\"), $fromAI(\"series\", \"Cantidad de series\", \"number\"), $fromAI(\"repeticiones\", \"Repeticiones por serie, por ejemplo 10 o 12-10-8\", \"string\"), $fromAI(\"notas\", \"Notas opcionales; vacio si no hay\", \"string\") ]] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        1880,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d41",
+      "name": "Anotar_ejercicio",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jarvisSheets0001",
+          "name": "Google Sheets JARVIS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Agrega un tema de estudio a la pestana Temas (o anota como viene con un tema despues de repasarlo).",
+        "method": "POST",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/Temas!A%3AF:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ values: [[ $fromAI(\"materia\", \"Materia, como en la pestana Materias\", \"string\"), $fromAI(\"evaluacion\", \"Evaluacion, por ejemplo Final o Tercer bloque\", \"string\"), $fromAI(\"tema\", \"Tema\", \"string\"), $fromAI(\"detalle\", \"Detalle o subtemas; vacio si no hay\", \"string\"), $fromAI(\"como_vengo\", \"Como viene con el tema: Bien, Mas o menos, Mal o vacio\", \"string\"), $now.setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy') ]] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2020,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d42",
+      "name": "Anotar_tema",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jarvisSheets0001",
+          "name": "Google Sheets JARVIS"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Agrega un parcial o final a la pestana Materias con su fecha.",
+        "method": "POST",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values/Materias!A%3AE:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ values: [[ $fromAI(\"materia\", \"Materia\", \"string\"), $fromAI(\"evaluacion\", \"Parcial, Final, Coloquio, etc.\", \"string\"), $fromAI(\"fecha\", \"Fecha en formato dd/mm/aaaa\", \"string\"), '=SI(INDIRECTO(\"C\"&FILA())=\"\";\"\";ENTERO(INDIRECTO(\"C\"&FILA())-HOY()))', $fromAI(\"notas\", \"Notas opcionales; vacio si no hay\", \"string\") ]] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d43",
+      "name": "Anotar_examen",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jarvisSheets0001",
+          "name": "Google Sheets JARVIS"
+        }
+      }
     }
   ],
   "connections": {
@@ -552,6 +656,50 @@
             "node": "JARVIS",
             "type": "ai_languageModel",
             "index": 1
+          }
+        ]
+      ]
+    },
+    "Leer_planilla": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anotar_ejercicio": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anotar_tema": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anotar_examen": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
+            "index": 0
           }
         ]
       ]

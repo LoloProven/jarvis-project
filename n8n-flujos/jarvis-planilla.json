@@ -1,0 +1,68 @@
+{
+  "id": "jarvisPlanilla01",
+  "name": "JARVIS planilla (página del reloj)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "jarvis-planilla",
+        "responseMode": "responseNode",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "b1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Pedido del reloj",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0],
+      "webhookId": "6e1d9b62-8b5f-4c9f-8e66-2a7d3c8b1b02",
+      "credentials": {
+        "httpHeaderAuth": { "id": "jarvisClaveReloj", "name": "Clave reloj JARVIS" }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1z7vetEM6Z9Mu1vkKSDYRMLkqp6c15mvZvDmIxSThzKs/values:batchGet?ranges=Rutina&ranges=Registro&ranges=Materias",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {}
+      },
+      "id": "b1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Leer planilla",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": { "id": "jarvisSheets0001", "name": "Google Sheets JARVIS" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resumen corto para la página del reloj: qué día de gimnasio toca, los últimos pesos y\n// cuánto falta para cada examen.\nconst [rut, reg, mat] = ($json.valueRanges || []).map(r => (r.values || []).slice(1));\nconst dias = (rut || []).filter(r => ['Push', 'Pull', 'Piernas'].includes(r[0]));\nconst registro = (reg || []).filter(r => r[0] && r[2]).map(r => ({\n  fecha: r[0], dia: r[1] || '', ejercicio: r[2], peso: r[3] || '', series: r[4] || '', reps: r[5] || '', notas: r[6] || ''\n}));\nconst hoy = $now.setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy');\nconst ultimo = registro.length ? registro[registro.length - 1] : null;\nlet toca = dias[0];\nif (ultimo) {\n  const i = dias.findIndex(d => d[0] === ultimo.dia);\n  if (i >= 0) toca = ultimo.fecha === hoy ? dias[i] : dias[(i + 1) % dias.length];\n}\nconst materias = (mat || []).filter(r => r[0]).map(r => ({\n  materia: r[0], evaluacion: r[1] || '', fecha: r[2] || '', faltan: r[3] === '' || r[3] === undefined ? null : Number(r[3]), notas: r[4] || ''\n})).filter(m => m.faltan === null || m.faltan >= 0).sort((a, b) => (a.faltan ?? 999) - (b.faltan ?? 999));\nreturn [{ json: {\n  toca: toca ? { dia: toca[0], grupo: toca[1] || '', ejercicios: (toca[2] || '').split(';').map(s => s.trim()).filter(Boolean), series: toca[3] || '', extras: toca[4] || '' } : null,\n  ultimoDia: ultimo ? { fecha: ultimo.fecha, dia: ultimo.dia } : null,\n  registro: registro.slice(-8).reverse(),\n  materias\n} }];"
+      },
+      "id": "b1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Armar resumen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "b1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [660, 0]
+    }
+  ],
+  "connections": {
+    "Pedido del reloj": { "main": [[{ "node": "Leer planilla", "type": "main", "index": 0 }]] },
+    "Leer planilla": { "main": [[{ "node": "Armar resumen", "type": "main", "index": 0 }]] },
+    "Armar resumen": { "main": [[{ "node": "Responder", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}
