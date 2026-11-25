@@ -53,7 +53,7 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
    jarvis-planilla por localhost:5678 (con la clave del reloj): toca hoy + "proxima" de cada
    ejercicio (doble progresión: todas las series al tope del rango -> +2,5 kg (2 o 1 si es
    liviano) y vuelve a 8; si no, mismo peso +1 rep), "proximas" de toda la rutina, comidas de hoy
-   vs objetivo, AGUA (pestaña Agua: Fecha | Hora | Mililitros | Qué; objetivo 4000 ml en Objetivos; Anotar_agua) y exámenes. Gimnasio en la página = un cuadro por entrenamiento ("sesiones", ▲▼ vs la vez anterior). La página vuelve a pedir la planilla cuando cambia "ultimaCharla" de /api/estado. PÁGINA nueva por pestañas abajo (HOY, GIMNASIO, COMIDAS, ESTUDIO,
+   vs objetivo, AGUA (pestaña Agua: Fecha | Hora | Mililitros | Qué; objetivo 4000 ml en Objetivos; Anotar_agua) y exámenes. Borrar_anotacion -> flujo n8n-flujos/jarvis-borrar.json (GET /webhook/jarvis-borrar?pestana=Registro|Comidas|Agua&buscar=..., por localhost con la clave): borra la ÚLTIMA fila que tenga todas esas palabras. Gimnasio en la página = un cuadro por entrenamiento ("sesiones", ▲▼ vs la vez anterior). La página vuelve a pedir la planilla cuando cambia "ultimaCharla" de /api/estado. PÁGINA nueva por pestañas abajo (HOY, GIMNASIO, COMIDAS, ESTUDIO,
    RELOJ); maqueta para verla sin el reloj: un server node con datos de ejemplo. FALTA: programas de
    las materias para cargar Temas; series x reps reales de la rutina (dice "3 x 8-12 a ajustar").
    Para editar la planilla desde Claude: pedir un token con el refresh_token de la credencial

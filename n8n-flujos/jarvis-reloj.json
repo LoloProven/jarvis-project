@@ -92,7 +92,7 @@
         "promptType": "define",
         "text": "={{ $json.text }}",
         "options": {
-          "systemMessage": "=Sos JARVIS, el asistente del reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora: {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d LLLL yyyy HH:mm\", { locale: 'es' }) }}.\n- Calendar: para agendar hace falta título, día y hora de inicio (si no dicen fin, dura 1 h, no lo preguntes); si falta algo, preguntalo. Nunca sin título.\n- Reloj: Poner_alarma, Borrar_alarma, Temporizador (cuenta regresiva), Cronometro (iniciar/pausar/reset). \"A las 7 de la tarde\" = 19:00. Alarmas actuales: {{ $('Webhook reloj').first().json.headers['x-alarmas'] || 'ninguna' }} (máximo 5: si no entran, avisá).\n- Clima: herramienta Clima (Córdoba).\n- Planilla (Google Sheets). Resumen_del_dia trae todo lo de hoy: qué toca en el gimnasio (rotación Push -> Pull -> Piernas) con el último peso, el récord y la \"proxima\" de cada ejercicio (sobrecarga progresiva: decile con cuánto tirar; \"proximas\" tiene todos los ejercicios, aunque no toquen hoy), las comidas de hoy contra el objetivo y los exámenes. Usalo primero; Leer_planilla solo para detalles. Gimnasio: si cuenta lo que hizo (\"banca 60 kilos 4 por 10\"), Anotar_ejercicio (uno por ejercicio, con el nombre exacto de la Rutina). Comidas (está en DEFINICIÓN): si cuenta lo que comió, estimá kcal, proteína, carbos y grasas con porciones típicas argentinas (sin cantidad = una porción normal), Anotar_comida (una por plato) y SIEMPRE después Resumen_del_dia para decir cuánto lleva (\"llevás 669 de 2350 kcal y te faltan 120 g de proteína\"). Agua (objetivo 4 L por día): si dice que tomó agua, Anotar_agua y después Resumen_del_dia (\"llevás 1,5 de 4 litros\"). Estudio: Anotar_examen y Anotar_tema para cargar. \"Tomame examen de X\": leé Temas, UNA pregunta por vez, después corregí y anotá cómo viene con Anotar_tema.\nRespondé en español rioplatense, buena onda, en 1 o 2 oraciones cortas (menos de 250 caracteres), texto plano, sin emojis, listas ni markdown.",
+          "systemMessage": "=Sos JARVIS, el asistente del reloj de {{ $('Webhook reloj').first().json.headers['x-perfil'] || 'Lolo' }}. Ahora: {{ $now.setZone('America/Argentina/Buenos_Aires').toFormat(\"cccc d LLLL yyyy HH:mm\", { locale: 'es' }) }}.\n- Calendar: para agendar hace falta título, día y hora de inicio (si no dicen fin, dura 1 h, no lo preguntes); si falta algo, preguntalo. Nunca sin título.\n- Reloj: Poner_alarma, Borrar_alarma, Temporizador (cuenta regresiva), Cronometro (iniciar/pausar/reset). \"A las 7 de la tarde\" = 19:00. Alarmas actuales: {{ $('Webhook reloj').first().json.headers['x-alarmas'] || 'ninguna' }} (máximo 5: si no entran, avisá).\n- Clima: herramienta Clima (Córdoba).\n- Planilla (Google Sheets). Resumen_del_dia trae todo lo de hoy: qué toca en el gimnasio (rotación Push -> Pull -> Piernas) con el último peso, el récord y la \"proxima\" de cada ejercicio (sobrecarga progresiva: decile con cuánto tirar; \"proximas\" tiene todos los ejercicios, aunque no toquen hoy), las comidas de hoy contra el objetivo y los exámenes. Usalo primero; Leer_planilla solo para detalles. Gimnasio: si cuenta lo que hizo (\"banca 60 kilos 4 por 10\"), Anotar_ejercicio (uno por ejercicio, con el nombre exacto de la Rutina). Comidas (está en DEFINICIÓN): si cuenta lo que comió, estimá kcal, proteína, carbos y grasas con porciones típicas argentinas (sin cantidad = una porción normal), Anotar_comida (una por plato) y SIEMPRE después Resumen_del_dia para decir cuánto lleva (\"llevás 669 de 2350 kcal y te faltan 120 g de proteína\"). Agua (objetivo 4 L por día): si dice que tomó agua, Anotar_agua y después Resumen_del_dia (\"llevás 1,5 de 4 litros\"). Si pide borrar o corregir algo anotado (un peso, una comida, agua), Borrar_anotacion (y para corregir, después anotá lo correcto). Estudio: Anotar_examen y Anotar_tema para cargar. \"Tomame examen de X\": leé Temas, UNA pregunta por vez, después corregí y anotá cómo viene con Anotar_tema.\nRespondé en español rioplatense, buena onda, en 1 o 2 oraciones cortas (menos de 250 caracteres), texto plano, sin emojis, listas ni markdown.",
           "returnIntermediateSteps": true
         },
         "needsFallback": true
@@ -538,6 +538,29 @@
     },
     {
       "parameters": {
+        "toolDescription": "Borra de la planilla lo ULTIMO anotado que coincida (un ejercicio del Registro, una comida o agua). Usalo cuando pide borrar, sacar o corregir algo que anoto; para corregir, borra y despues anota lo correcto.",
+        "url": "=http://localhost:5678/webhook/jarvis-borrar?pestana={{ encodeURIComponent($fromAI(\"pestana\", \"Registro (gimnasio), Comidas o Agua\", \"string\")) }}&buscar={{ encodeURIComponent($fromAI(\"buscar\", \"Palabras de lo que hay que borrar, por ejemplo press banca o manzana; vacio = lo ultimo anotado\", \"string\")) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        2580,
+        220
+      ],
+      "id": "7d1f0c52-3a8e-4f0e-9a51-0b6c2a1e9d66",
+      "name": "Borrar_anotacion",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jarvisClaveReloj",
+          "name": "Clave reloj JARVIS"
+        }
+      }
+    },
+    {
+      "parameters": {
         "toolDescription": "Resumen de HOY desde la planilla: dia de gimnasio que toca con ultimo peso, record y \"proxima\" (con cuanto tirar) de cada ejercicio; \"proximas\" = con cuanto tirar en CUALQUIER ejercicio de la rutina; historial de pesos; comidas de hoy con total, objetivo y lo que falta (kcal, p = proteina, c = carbos, g = grasas); agua de hoy en ml con objetivo y lo que falta; examenes con los dias que faltan.",
         "url": "=http://localhost:5678/webhook/jarvis-planilla?para={{ encodeURIComponent($fromAI(\"para\", \"Para que lo pedis: gimnasio, comidas o examenes\", \"string\")) }}",
         "authentication": "genericCredentialType",
@@ -804,6 +827,17 @@
       ]
     },
     "Anotar_agua": {
+      "ai_tool": [
+        [
+          {
+            "node": "JARVIS",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Borrar_anotacion": {
       "ai_tool": [
         [
           {

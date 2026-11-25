@@ -28,7 +28,7 @@ const run = (args) => {
 };
 
 for (const [file, id] of [['jarvis-reloj.json', 'jarvisReloj00001'], ['jarvis-agenda.json', 'jarvisAgenda0001'],
-                          ['jarvis-planilla.json', 'jarvisPlanilla01']]) {
+                          ['jarvis-planilla.json', 'jarvisPlanilla01'], ['jarvis-borrar.json', 'jarvisBorrar0001']]) {
     const flow = readFileSync(path.join(repo, 'n8n-flujos', file), 'utf8')
         .split('TU_CALENDARIO@gmail.com').join(calendar);
     writeFileSync(tmp, flow);                              // sin BOM: n8n no lo acepta
