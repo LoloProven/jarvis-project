@@ -265,7 +265,7 @@ nav button.activa{color:var(--acento);background:var(--acento-bajo)}
 </div></nav>
 
 <script>
-let est = null, plan = null, agendaDatos = null, editando = 0;
+let est = null, plan = null, agendaDatos = null, editando = 0, planCuando = 0, planPidiendo = false;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const DIAS = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
@@ -289,6 +289,8 @@ function mostrar(tab) {
   document.querySelectorAll('section').forEach(s => s.classList.toggle('activa', s.id === 's-' + tab));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('activa', b.dataset.tab === tab));
   try { localStorage.setItem('pestana', tab); } catch (e) {}
+  // Gimnasio, comidas y estudio: si lo que hay tiene más de 30 s, pedirlo de nuevo.
+  if (['gym', 'comidas', 'estudio'].includes(tab) && planCuando &&Date.now() - planCuando > 30000) cargarPlanilla(true);
   window.scrollTo(0, 0);
 }
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => mostrar(b.dataset.tab));
@@ -386,11 +388,15 @@ function pintar() {
     '<tr><td colspan="7" class="aviso">Todavía no hay datos.</td></tr>';
 }
 
+let ultimaCharla = null;
 async function cargar() {
   try {
     est = await (await fetch('/api/estado', {cache: 'no-store'})).json();
     $('error').style.display = 'none';
     pintar();
+    // Habló con JARVIS: puede haber anotado una comida o un peso; traer todo al toque.
+    if (ultimaCharla !== null && est.ultimaCharla !== ultimaCharla) { cargarHistorial(); cargarPlanilla(true); }
+    ultimaCharla = est.ultimaCharla;
   } catch (e) { fallo(); }
 }
 
@@ -487,7 +493,11 @@ function pintarPlanilla() {
 }
 
 async function cargarPlanilla(nueva) {
+  if (planPidiendo) return;
+  planPidiendo = true;
   try { plan = await desdeN8n('/api/planilla', nueva); } catch (e) { plan = {error: -1}; }
+  planPidiendo = false;
+  planCuando = Date.now();
   pintarPlanilla();
 }
 

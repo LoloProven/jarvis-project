@@ -55,6 +55,9 @@ static void sendState() {
     doc["clima"]["ok"] = Weather::available();
     doc["clima"]["temp"] = Weather::temperature();
     doc["clima"]["desc"] = Weather::description();
+    // Hora de la última charla con JARVIS: si cambia, la página vuelve a pedir la planilla
+    // (JARVIS pudo anotar una comida o un peso).
+    doc["ultimaCharla"] = Jarvis::historyCount() ? Jarvis::history(0).when : 0;
 
     JsonObject a = doc.createNestedObject("ajustes");
     a["brillo"] = Settings::brightness();
