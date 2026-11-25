@@ -248,11 +248,22 @@ function nombreDia(d) {
   return dif === 0 ? 'HOY · ' + base : dif === 1 ? 'MAÑANA · ' + base : base;
 }
 
+// Lo que el reloj trae de n8n: si contesta "cargando", lo está pidiendo; volver a preguntar.
+async function desdeN8n(ruta, nueva) {
+  let q = nueva ? '?nueva=1' : '';
+  for (let i = 0; i < 20; i++) {
+    const j = await (await fetch(ruta + q, {cache: 'no-store'})).json();
+    if (!j.cargando) return j;
+    await new Promise(r => setTimeout(r, 2000));
+    q = '?vuelta=1';
+  }
+  return {error: -5};
+}
+
 // Agenda de Google Calendar (hoy y las próximas 2 semanas), vía el reloj y n8n.
 async function cargarAgenda(nueva) {
   try {
-    const r = await fetch('/api/agenda' + (nueva ? '?nueva=1' : ''), {cache: 'no-store'});
-    const a = await r.json();
+    const a = await desdeN8n('/api/agenda', nueva);
     if (a.error !== undefined) {
       $('agenda').innerHTML = `<div class="card aviso">No pude traer la agenda (n8n ${a.error < 0 ? 'no responde' : 'respondió ' + a.error}). Tiene que estar la compu prendida con las 3 ventanas de JARVIS abiertas (ngrok, voz y n8n).</div>`;
       return;
@@ -275,7 +286,7 @@ async function cargarAgenda(nueva) {
 // Planilla de Google Sheets (gimnasio y exámenes), vía el reloj y n8n. La edita JARVIS.
 async function cargarPlanilla() {
   try {
-    const p = await (await fetch('/api/planilla', {cache: 'no-store'})).json();
+    const p = await desdeN8n('/api/planilla');
     if (p.error !== undefined) {
       $('gimnasio').innerHTML = `<div class="card aviso">No pude traer la planilla (n8n ${p.error < 0 ? 'no responde' : 'respondió ' + p.error}).</div>`;
       $('examenes').innerHTML = '';
@@ -346,8 +357,7 @@ $('agregar').onclick = () => {
 };
 cargar();
 cargarHistorial();
-cargarAgenda();
-cargarPlanilla();
+cargarAgenda().then(cargarPlanilla);   // de a uno: el reloj hace un pedido a n8n por vez
 setInterval(() => { if (!document.hidden) cargarPlanilla(); }, 5 * 60000);
 setInterval(() => { if (Date.now() - editando > 3000 && !document.hidden) cargar(); }, 10000);
 setInterval(() => { if (!document.hidden) cargarHistorial(); }, 30000);

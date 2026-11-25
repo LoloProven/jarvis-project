@@ -176,44 +176,117 @@ static void sendHistory() {
 // Agenda y planilla: el reloj se las pide a los flujos "JARVIS agenda" y "JARVIS planilla" de
 // n8n (por el túnel, con la clave del reloj; así la clave nunca llega al celu). Se guardan
 // 2 min para no pedirlas a cada rato.
+// El pedido a n8n va en una tarea aparte y NO mientras el celu espera la respuesta: hecho dentro
+// del pedido del celu, la conexión TLS con ngrok fallaba siempre (-29312, "connection indicated
+// an EOF"). Si no hay nada guardado, el reloj contesta {"cargando":1} y la página vuelve a
+// preguntar a los pocos segundos.
 static const unsigned long PROXY_CACHE_MS = 2UL * 60 * 1000;
 struct N8nProxy {
     const char* suffix;                     // se suma a JARVIS_URL: "-agenda" o "-planilla"
     String cache;
     unsigned long at;
+    int lastError;                          // 0 = bien; si no, el código del último intento
 };
-static N8nProxy agenda = {"-agenda", "", 0};
-static N8nProxy planilla = {"-planilla", "", 0};
+static N8nProxy agenda = {"-agenda", "", 0, 0};
+static N8nProxy planilla = {"-planilla", "", 0, 0};
+
+static N8nProxy* volatile fetchFor = nullptr;   // el pedido en curso (o el terminado sin leer)
+static volatile bool fetchDone = false;
+static int fetchCode = -1;
+static String fetchBody;
+
+// GET a mano (HTTP/1.0: el cuerpo llega entero, sin "chunked", y termina al cerrar).
+static void fetchTask(void* arg) {
+    N8nProxy* p = (N8nProxy*)arg;
+    String url = JARVIS_URL;
+    int hostStart = url.indexOf("://") + 3;
+    int pathStart = url.indexOf('/', hostStart);
+    String host = url.substring(hostStart, pathStart);
+    String path = url.substring(pathStart) + p->suffix;
+    NetworkClientSecure c;
+    c.setInsecure();                        // como JARVIS: lo protege la clave
+    c.setTimeout(15);
+    int code = -1;
+    String body;
+    bool ok = c.connect(host.c_str(), 443);
+    if (!ok) { vTaskDelay(pdMS_TO_TICKS(300)); ok = c.connect(host.c_str(), 443); }
+    if (ok) {
+        c.print(String("GET ") + path + " HTTP/1.0\r\nHost: " + host +
+                "\r\nX-Jarvis-Clave: " + JARVIS_KEY +
+                "\r\nngrok-skip-browser-warning: 1\r\nConnection: close\r\n\r\n");
+        // Todo hasta que n8n cierre; después: "HTTP/1.1 200 OK", encabezados, línea vacía, cuerpo.
+        String raw;
+        uint8_t buf[512];
+        unsigned long t0 = millis();
+        while ((c.connected() || c.available()) && millis() - t0 < 20000) {
+            int n = c.available() ? c.read(buf, sizeof(buf)) : 0;
+            if (n > 0) raw.concat((const char*)buf, n);
+            else vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        c.stop();
+        int sp = raw.indexOf(' ');
+        int end = raw.indexOf("\r\n\r\n");
+        code = (raw.startsWith("HTTP/") && sp > 0) ? raw.substring(sp + 1, sp + 4).toInt() : -2;
+        if (end >= 0) body = raw.substring(end + 4);
+    } else {
+        char err[100];
+        c.lastError(err, sizeof(err));
+        Serial.printf("[web] no pude conectar con el tunel (%s)\n", err);
+    }
+    Serial.printf("[web] %s: HTTP %d (%u bytes)\n", p->suffix + 1, code, (unsigned)body.length());
+    fetchCode = code;
+    fetchBody = body;
+    fetchDone = true;                       // el loop lo pasa a la caché (collectFetch)
+    vTaskDelete(nullptr);
+}
+
+// En el loop: si terminó un pedido, guarda el resultado.
+static void collectFetch() {
+    if (!fetchFor || !fetchDone) return;
+    N8nProxy* p = fetchFor;
+    if (fetchCode == 200 && fetchBody.startsWith("{")) {
+        p->cache = fetchBody;
+        p->at = millis();
+        p->lastError = 0;
+    } else {
+        p->lastError = fetchCode;
+    }
+    fetchBody = "";
+    fetchFor = nullptr;
+    // Vuelve a 80 MHz si la pantalla sigue apagada (startFetch la había subido).
+    if (PowerManager::isScreenOff() && getCpuFrequencyMhz() > 80) setCpuFrequencyMhz(80);
+}
+
+static void startFetch(N8nProxy& p) {
+    collectFetch();
+    if (fetchFor) return;                   // ya hay uno en curso
+    // Con la pantalla apagada la CPU va a 80 MHz y el saludo TLS tarda tanto que ngrok corta
+    // (-29312, "connection indicated an EOF"). JARVIS no lo sufre porque BOOT prende la pantalla.
+    if (getCpuFrequencyMhz() < 240) setCpuFrequencyMhz(240);
+    fetchDone = false;
+    fetchFor = &p;
+    if (xTaskCreatePinnedToCore(fetchTask, "webN8n", 12288, &p, 2, nullptr, 0) != pdPASS) {
+        fetchFor = nullptr;
+        p.lastError = -4;
+    }
+}
 
 static void sendFromN8n(N8nProxy& p) {
     markUse();
-    bool fresh = web.hasArg("nueva");
-    if (!fresh && p.cache.length() && millis() - p.at < PROXY_CACHE_MS) {
+    collectFetch();
+    bool fresh = p.cache.length() && millis() - p.at < PROXY_CACHE_MS;
+    bool again = web.hasArg("vuelta");      // la página vuelve a preguntar tras un "cargando"
+    if (fetchFor == &p) {
+        web.send(200, "application/json", "{\"cargando\":1}");
+    } else if (again && p.lastError != 0) {
+        // falló: n8n apagado, sin túnel o sin internet (la página lo explica).
+        web.send(200, "application/json", String("{\"error\":") + p.lastError + "}");
+        p.lastError = 0;
+    } else if (fresh && (again || !web.hasArg("nueva"))) {
         web.send(200, "application/json", p.cache);
-        return;
-    }
-    NetworkClientSecure client;
-    client.setInsecure();                   // como JARVIS: lo protege la clave
-    HTTPClient http;
-    http.setTimeout(10000);
-    http.setConnectTimeout(8000);
-    int code = -1;
-    String body;
-    if (http.begin(client, String(JARVIS_URL) + p.suffix)) {
-        http.addHeader("X-Jarvis-Clave", JARVIS_KEY);
-        http.addHeader("ngrok-skip-browser-warning", "1");
-        code = http.GET();
-        if (code == 200) body = http.getString();
-        http.end();
-    }
-    Serial.printf("[web] %s: HTTP %d (%u bytes)\n", p.suffix + 1, code, (unsigned)body.length());
-    if (code == 200 && body.startsWith("{")) {
-        p.cache = body;
-        p.at = millis();
-        web.send(200, "application/json", body);
     } else {
-        // n8n apagado, sin túnel o sin internet: la página lo explica.
-        web.send(200, "application/json", String("{\"error\":") + code + "}");
+        startFetch(p);
+        web.send(200, "application/json", "{\"cargando\":1}");
     }
 }
 
@@ -256,6 +329,7 @@ void WebSettings::loop() {
         started = false;
     }
     if (started) web.handleClient();
+    collectFetch();                         // guarda lo que trajo de n8n y baja la CPU
 }
 
 bool WebSettings::running() { return started; }

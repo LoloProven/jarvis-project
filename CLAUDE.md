@@ -40,7 +40,7 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
    El cliente OAuth y la API de Sheets están en el proyecto de Google Cloud "Jervis-Server" de la
    cuenta de la FACU (en la consola es la segunda cuenta: authuser=1). La planilla "JARVIS" es del
    Gmail personal y está compartida como Editor con la cuenta de la facu (probado: la API la lee).
-   HECHO (rama planilla-jarvis, 25/11; probado con WAV de prueba, falta probar en el reloj):
+   HECHO (rama planilla-jarvis, 25/11; probado en el reloj: JARVIS anota y la página la muestra):
    herramientas del agente (httpRequestTool a la API de Sheets con la credencial): Leer_planilla,
    Anotar_ejercicio, Anotar_tema, Anotar_examen. Rutina = Push/Pull/Piernas en rotación (lo que
    toca = el día que sigue al último del Registro). Registro: Fecha | Día | Ejercicio | Peso | Series
@@ -287,6 +287,9 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
   que "Olvidar este dispositivo" en el iPhone y volver a vincular.
 - Con Bluetooth prendido el chip no puede entrar en sueño liviano (se traba): el modo dormir hace
   MediaRemote::stop() y al despertar MediaRemote::init().
+- TLS con la pantalla apagada: la CPU va a 80 MHz y el saludo TLS tarda tanto que ngrok corta
+  (-29312 "connection indicated an EOF"). web_settings.cpp sube a 240 MHz mientras pide la agenda
+  o la planilla (en una tarea aparte; la página recibe {"cargando":1} y vuelve a preguntar).
 - SensorLib 0.2.x usa init() en vez de begin() (los ejemplos de Waveshare usan una versión más nueva).
 - El hotspot del iPhone: nombre exacto con mayúsculas ("iPhoneLolo"), "Maximizar compatibilidad"
   activado y la pantalla de Compartir Internet abierta para que se vea.
