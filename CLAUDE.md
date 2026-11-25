@@ -180,6 +180,13 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
     "Modelo de respaldo" = Gemini models/gemini-3.5-flash-lite (2.5 ya no existe para usuarios
     nuevos; lento, 5-15 s, pero no falla). Sin retryOnFail (gastaba más tokens). Memoria 4,
     instrucciones más cortas, avisa que el reloj guarda máx. 5 alarmas. Llama 4 Scout ya no está en Groq.
+    TOKENS (25/11): Groq gratis = 8000 tokens/min POR MODELO (gpt-oss-20b, gpt-oss-120b, qwen); cada
+    llamada al modelo ~2200 tokens (instrucciones + 25 herramientas). Respaldo ahora = gpt-oss-120b en
+    Groq (otro cupo, rápido) en vez de Gemini; reasoningEffort low (con razonamiento normal a veces
+    gastaba los 1500 tokens pensando y no respondía). Anotar_ejercicio/comida/agua llaman al flujo
+    n8n-flujos/jarvis-anotar.json (anota y devuelve en una línea cuánto lleva hoy: una llamada menos);
+    Resumen_del_dia pide ?para=gimnasio|comidas|examenes (devuelve solo eso). Si se agregan
+    herramientas, mirar tokenUsage en runData de "Modelo de chat".
     Medir tiempos por paso: D:/temp/tiempos.cjs (lee runData con flatted desde node_modules).
   - BUG ABIERTO (24/10 00:40): BOOT a veces no hace nada (sin pedidos en ngrok, nada en el log),
     pasó en la calle y en casa, probablemente después de pasar por el MODO DORMIR. main.cpp tiene un
