@@ -46,7 +46,15 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
    toca = el día que sigue al último del Registro). Registro: Fecha | Día | Ejercicio | Peso | Series
    | Repeticiones | Notas. Materias con los finales de nov/dic (fórmula con ; porque la planilla
    está en español). Flujo n8n-flujos/jarvis-planilla.json (GET /webhook/jarvis-planilla) ->
-   /api/planilla del reloj -> secciones Gimnasio y Exámenes de la página. FALTA: programas de
+   /api/planilla del reloj -> la página. COMIDAS (dieta de DEFINICIÓN; usuario 20 años, 84 kg,
+   184 cm): pestaña Comidas (Fecha | Hora | Comida | Kcal | Proteína | Carbos | Grasas), la IA
+   estima macros con Anotar_comida; pestaña Objetivos: 2350 kcal, 168 P, 269 C, 67 G (Mifflin
+   ~1895, x1,55 = ~2940, -20 %). Resumen_del_dia = herramienta que llama al propio webhook
+   jarvis-planilla por localhost:5678 (con la clave del reloj): toca hoy + "proxima" de cada
+   ejercicio (doble progresión: todas las series al tope del rango -> +2,5 kg (2 o 1 si es
+   liviano) y vuelve a 8; si no, mismo peso +1 rep), "proximas" de toda la rutina, comidas de hoy
+   vs objetivo y exámenes. PÁGINA nueva por pestañas abajo (HOY, GIMNASIO, COMIDAS, ESTUDIO,
+   RELOJ); maqueta para verla sin el reloj: un server node con datos de ejemplo. FALTA: programas de
    las materias para cargar Temas; series x reps reales de la rutina (dice "3 x 8-12 a ajustar").
    Para editar la planilla desde Claude: pedir un token con el refresh_token de la credencial
    (export:credentials a D:\temp, borrar enseguida) y usar la API de Sheets.
