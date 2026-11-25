@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include "settings.h"
 
 // Córdoba (las mismas coordenadas que usa la herramienta Clima de JARVIS en n8n).
 static const char* URL = "http://api.open-meteo.com/v1/forecast?latitude=-31.42&longitude=-64.18"
@@ -64,7 +65,7 @@ static void fetchTask(void*) {
 }
 
 void Weather::loop() {
-    if (busy || WiFi.status() != WL_CONNECTED) return;
+    if (busy || !Settings::weather() || WiFi.status() != WL_CONNECTED) return;
     unsigned long wait = lastOk ? EVERY_MS : RETRY_MS;
     if (lastTry != 0 && millis() - lastTry < wait) return;
     lastTry = millis();

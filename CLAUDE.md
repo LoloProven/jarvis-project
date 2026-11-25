@@ -34,10 +34,26 @@ copia del escritorio (D:\Users\Lolo\Desktop\iniciar-n8n.bat) hay que mantenerla 
    (cada 1 min si corre y en cada INICIAR/PAUSA/RESET). AlarmManager::init va después de TimeSync.
 3. BUG: BOOT a veces no responde (ver "BUG ABIERTO" abajo; diagnóstico [boot]/[vivo] en main.cpp).
    Truco para el usuario mientras tanto: reiniciar (PWR 4 s y PWR) y entrar al perfil.
-4. Gimnasio y estudio con Google Sheets (planilla "JARVIS" ya creada, ver abajo): falta la
-   credencial de Google Sheets en n8n (la hace el usuario), su rutina, los programas de Análisis 3,
-   Programación Concurrente y Paralela e Inteligencia Artificial y la fecha del parcial de IA.
-5. Batería: el usuario dice (28/10) que mejoró mucho; falta una foto de BATERIA con S% y mV.
+4. Gimnasio y estudio con Google Sheets: CREDENCIAL LISTA (24/11). En n8n: "Google Sheets JARVIS"
+   (id jarvisSheets0001, tipo googleSheetsOAuth2Api, mismo cliente OAuth que Calendar, creada por CLI
+   copiando clientId/secret sin mostrarlos; conectada por el usuario con "Sign in with Google").
+   El cliente OAuth y la API de Sheets están en el proyecto de Google Cloud "Jervis-Server" de la
+   cuenta de la FACU (en la consola es la segunda cuenta: authuser=1). La planilla "JARVIS" es del
+   Gmail personal y está compartida como Editor con la cuenta de la facu (probado: la API la lee).
+   FALTA: herramientas del agente (anotar pesos, qué toca hoy, temas) y la sección "Planilla" de la
+   página (hoy dice "Sin conectar todavía"); la rutina y los programas de las materias los pasa el
+   usuario; fecha del parcial de IA.
+5. PÁGINA DE AJUSTES (rama pagina-ajustes, probada en el iPhone 24/11; sin PR todavía): el reloj
+   sirve http://jarvis.local/ (src/web_settings.cpp, página en include/web_page.h, ícono
+   include/web_icon.h con tools/icongen.py). AJUSTES > CELU muestra un QR (librería qrcode del
+   framework, esp_qrcode_generate). Funciones con consejos de batería, ajustes nuevos en settings.cpp
+   (bt, avisos, muneca, clima, pantalla, dormir, meta), alarmas, registro de batería, AGENDA (el reloj
+   pide /webhook/jarvis-agenda al flujo n8n-flujos/jarvis-agenda.json con su clave; caché 2 min) e
+   HISTORIAL de JARVIS (últimas 12 charlas en NVS "jarvis"/"historial", jarvis.cpp remember()).
+   Los eventos que crea JARVIS llevan descripción "Creado por JARVIS..." y la agenda los marca.
+   importar-jarvis.mjs ahora importa los dos flujos. Mientras se usa la página (5 min) no se apaga
+   el WiFi ni duerme. Falta probar agenda e historial desde el iPhone.
+5b. Batería: el usuario dice (28/10) que mejoró mucho; falta una foto de BATERIA con S% y mV.
 6. Pasos y km contra Strava (una corrida/caminata con la Sesion del CRONO).
 7. n8n tarda en arrancar (8-11 min con la PC cargada): investigar si sigue lento.
 8. Ideas: recordatorios (Google Tasks), resumen del día al abrir JARVIS, leer mails (Gmail),

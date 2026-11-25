@@ -89,7 +89,8 @@ enum ScreenState {
     SCREEN_WIFI_CONFIG,
     SCREEN_ALARM_RINGING,
     SCREEN_SETTINGS,       // AJUSTES: brillo, volumen de la alarma y WiFi
-    SCREEN_BATTERY         // registro de la batería (se entra desde AJUSTES)
+    SCREEN_BATTERY,        // registro de la batería (se entra desde AJUSTES)
+    SCREEN_WEB             // código QR para abrir la página de ajustes desde el celu (desde AJUSTES)
 };
 
 // --- TABS DEL DASHBOARD ---

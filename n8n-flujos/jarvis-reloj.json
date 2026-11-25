@@ -173,7 +173,8 @@
           "mode": "id"
         },
         "additionalFields": {
-          "summary": "={{ $fromAI(\"titulo\", \"Titulo corto del evento, por ejemplo: Examen de Analisis Matematico 3\", \"string\") }}"
+          "summary": "={{ $fromAI(\"titulo\", \"Titulo corto del evento, por ejemplo: Examen de Analisis Matematico 3\", \"string\") }}",
+          "description": "Creado por JARVIS desde el reloj"
         },
         "start": "={{ $fromAI(\"inicio\", \"Fecha y hora de inicio del evento en ISO 8601 con la zona de Argentina, por ejemplo 2026-11-05T08:00:00-03:00\", \"string\") }}",
         "end": "={{ $fromAI(\"fin\", \"Fecha y hora de fin en ISO 8601 con la zona de Argentina, por ejemplo 2026-11-05T08:00:00-03:00. Si no la dicen, una hora despues del inicio\", \"string\") }}"

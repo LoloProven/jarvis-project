@@ -14,6 +14,8 @@
 #include "battery_log.h"
 #include "weather.h"
 #include "jarvis.h"
+#include "web_settings.h"
+#include <qrcode.h>
 #include <WiFi.h>
 
 // Estilo "B · Deportivo" (ver palette.h): fondo negro, texto blanco, etiquetas grises en
@@ -318,6 +320,7 @@ void DisplayUI::refreshCurrentScreen() {
     else if (currentScreen == SCREEN_WIFI_CONFIG) drawWifiPortalScreen();
     else if (currentScreen == SCREEN_SETTINGS) drawSettingsScreen();
     else if (currentScreen == SCREEN_BATTERY) drawBatteryScreen();
+    else if (currentScreen == SCREEN_WEB) drawWebScreen();
 }
 
 // --- MENÚ DE PERFILES ---
@@ -349,7 +352,7 @@ void DisplayUI::drawProfileMenu() {
 static const int SET_MINUS_X = 50, SET_PLUS_X = 270, SET_BTN_W = 90, SET_BTN_H = 56;
 static const int SET_BRIGHT_Y = 96, SET_VOLUME_Y = 198;       // fila de botones de cada ajuste
 static const int SET_WIFI_X = 50, SET_BATT_X = 210, SET_ROW2_W = 150, SET_WIFI_Y = 282;
-static const int SET_BACK_X = 100, SET_BACK_W = 210, SET_BACK_Y = 362, SET_ROW_H = 56;
+static const int SET_CELU_X = 50, SET_BACK_X = 210, SET_BACK_W = 150, SET_BACK_Y = 352, SET_ROW_H = 56;
 
 static void drawSettingRow(Arduino_GFX* g, const char* title, int y, const char* value) {
     AAText::drawCentered(g, FONT_S, CX, y - 28, title, PAL_GRIS, PAL_FONDO, 2);
@@ -375,7 +378,71 @@ void DisplayUI::drawSettingsScreen() {
     drawSettingValues(gfx);
     button(gfx, SET_WIFI_X, SET_WIFI_Y, SET_ROW2_W, SET_ROW_H, "WIFI", FONT_M, false);
     button(gfx, SET_BATT_X, SET_WIFI_Y, SET_ROW2_W, SET_ROW_H, "BATERÍA", FONT_M, false);
+    button(gfx, SET_CELU_X, SET_BACK_Y, SET_ROW2_W, SET_ROW_H, "CELU", FONT_M, false);
     button(gfx, SET_BACK_X, SET_BACK_Y, SET_BACK_W, SET_ROW_H, "VOLVER", FONT_M, true);
+}
+
+// --- PÁGINA DE AJUSTES DESDE EL CELU ---
+// Código QR para abrirla con la cámara del celu (sin escribir la dirección). Por defecto
+// lleva a http://jarvis.local/ (no cambia nunca, así sirve el ícono de "Agregar a inicio");
+// tocando el código pasa a la IP, por si esa red no deja usar ".local".
+static const int WEB_QR_TOP = 62, WEB_QR_MAX = 250;
+static const int WEB_BACK_X = 100, WEB_BACK_W = 210, WEB_BACK_Y = 404, WEB_BACK_H = 52;
+static const unsigned long WEB_SCREEN_MAX_MS = 3UL * 60 * 1000;   // pantalla prendida hasta 3 min
+static bool webShowIp = false;
+static int webShownRunning = -1;
+static unsigned long webScreenSince = 0;
+static Arduino_GFX* qrGfx;
+
+static void drawQrModules(esp_qrcode_handle_t qr) {
+    int n = esp_qrcode_get_size(qr);
+    int scale = WEB_QR_MAX / (n + 8);                 // 4 módulos de margen blanco por lado
+    int box = scale * (n + 8);
+    int x0 = (LCD_WIDTH - box) / 2, y0 = WEB_QR_TOP;
+    qrGfx->fillRoundRect(x0, y0, box, box, 12, PAL_BLANCO);
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++)
+            if (esp_qrcode_get_module(qr, x, y))
+                qrGfx->fillRect(x0 + (x + 4) * scale, y0 + (y + 4) * scale, scale, scale, PAL_FONDO);
+}
+
+void DisplayUI::drawWebScreen() {
+    if (PowerManager::isScreenOff()) return;
+    gfx->fillScreen(PAL_FONDO);
+    AAText::drawCentered(gfx, FONT_L, CX, 20, "DESDE EL CELU", PAL_BLANCO, PAL_FONDO, 2);
+    bool running = WebSettings::running();
+    webShownRunning = running;
+    if (!running) {
+        AAText::drawCentered(gfx, FONT_L, CX, 150, "Conectando al WiFi...", PAL_ACENTO, PAL_FONDO);
+        AAText::drawWrapped(gfx, FONT_M, 60, 210, 290, 5,
+                            "El reloj y el celu tienen que estar en el mismo WiFi (el de casa o el hotspot del iPhone).",
+                            PAL_GRIS, PAL_FONDO);
+    } else {
+        String url = webShowIp ? WebSettings::ipUrl() : String(WebSettings::nameUrl());
+        qrGfx = gfx;
+        esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
+        cfg.display_func = drawQrModules;
+        cfg.qrcode_ecc_level = ESP_QRCODE_ECC_MED;
+        esp_qrcode_generate(&cfg, url.c_str());
+        AAText::drawCentered(gfx, FONT_M, CX, 322, "Escaneá con la cámara del celu", PAL_BLANCO, PAL_FONDO);
+        String shown = url.substring(7, url.length() - 1);            // sin "http://" ni la barra
+        AAText::drawCentered(gfx, FONT_M, CX, 350, shown.c_str(), PAL_ACENTO, PAL_FONDO, 1);
+        AAText::drawCentered(gfx, FONT_S, CX, 378, webShowIp ? "Tocá el código para volver a jarvis.local"
+                                                             : "¿No abre? Tocá el código para usar la IP",
+                             PAL_GRIS, PAL_FONDO);
+    }
+    button(gfx, WEB_BACK_X, WEB_BACK_Y, WEB_BACK_W, WEB_BACK_H, "VOLVER", FONT_M, true);
+}
+
+// Mientras se ve el QR: la pantalla no se apaga (hasta 3 min), el WiFi tampoco, y se
+// redibuja cuando se conecta.
+void DisplayUI::webTick() {
+    if (currentScreen != SCREEN_WEB || PowerManager::isScreenOff()) return;
+    if (millis() - webScreenSince < WEB_SCREEN_MAX_MS) {
+        PowerManager::notifyActivity();
+        WebSettings::keepAlive();
+    }
+    if ((int)WebSettings::running() != webShownRunning) drawWebScreen();
 }
 
 // --- PANTALLA BATERIA ---
@@ -453,13 +520,19 @@ static void drawHeader(Arduino_GFX* g, const char* name) {
 // --- PANTALLA DE INICIO ---
 // Hora gigante, fecha, pasos del día con barra hacia la meta, distancia, clima y la
 // próxima alarma.
-static const unsigned long STEP_GOAL = 10000;
 static const int HOME_CLOCK_Y = 58;
 static const int HOME_DATE_Y = 150;
 static const int HOME_STEPS_Y = 198;                 // renglón FONT_S de "PASOS"
 static const int HOME_BAR_Y = 228, HOME_BAR_H = 10;
 static const int CARD_Y = 252, CARD_H = 72, CARD_W = 160, CARD2_X = CR - CARD_W;
 static const int ALARM_CARD_Y = 336, ALARM_CARD_H = 56;
+
+// " / 10.000" (la meta se cambia en la página de ajustes).
+static void goalLabel(char* buf, size_t len) {
+    char n[12];
+    thousands(n, sizeof(n), Settings::stepGoal());
+    snprintf(buf, len, " / %s", n);
+}
 
 // Próxima alarma activa: "07:30" o "" si no hay.
 static void nextAlarmText(char* buf, size_t len) {
@@ -500,11 +573,14 @@ static void refreshHome(Arduino_GFX* g, bool force) {
         thousands(buf, sizeof(buf), steps);
         if (force || strcmp(buf, shownSteps) != 0) {
             strlcpy(shownSteps, buf, sizeof(shownSteps));
-            int goalW = AAText::width(FONT_S, " / 10.000");
+            char goalText[16];
+            goalLabel(goalText, sizeof(goalText));
+            int goalW = AAText::width(FONT_S, goalText);
             AAText::drawBox(g, FONT_L, CR - goalW - 140, HOME_STEPS_Y + FONT_S.ascent - FONT_L.ascent, 140,
                             buf, PAL_BLANCO, PAL_FONDO, RIGHT);
         }
-        int fill = min(steps, STEP_GOAL) * CW / STEP_GOAL;
+        unsigned long goal = Settings::stepGoal();
+        int fill = min(steps, goal) * CW / goal;
         if (force || fill != shownBar) {
             shownBar = fill;
             g->fillRoundRect(CL, HOME_BAR_Y, CW, HOME_BAR_H, HOME_BAR_H / 2, PAL_BORDE);
@@ -535,7 +611,9 @@ static void refreshHome(Arduino_GFX* g, bool force) {
 
 static void drawHome(Arduino_GFX* g) {
     AAText::draw(g, FONT_S, CL, HOME_STEPS_Y, "PASOS", PAL_GRIS, PAL_FONDO, 1);
-    AAText::drawRight(g, FONT_S, CR, HOME_STEPS_Y, " / 10.000", PAL_GRIS, PAL_FONDO);
+    char goalText[16];
+    goalLabel(goalText, sizeof(goalText));
+    AAText::drawRight(g, FONT_S, CR, HOME_STEPS_Y, goalText, PAL_GRIS, PAL_FONDO);
 
     outlineBox(g, CL, CARD_Y, CARD_W, CARD_H, 16, PAL_BORDE);
     outlineBox(g, CARD2_X, CARD_Y, CARD_W, CARD_H, 16, PAL_BORDE);
@@ -1069,6 +1147,14 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
             currentScreen = SCREEN_BATTERY;
             drawBatteryScreen();
             return;
+        } else if (inBox(tx, ty, SET_CELU_X, SET_BACK_Y, SET_ROW2_W, SET_ROW_H)) {
+            TouchDriver::waitForRelease();
+            currentScreen = SCREEN_WEB;
+            webScreenSince = millis();
+            webShowIp = false;
+            WiFiPortal::connectNow();             // si el WiFi estaba esperando, que pruebe ya
+            drawWebScreen();
+            return;
         } else if (inBox(tx, ty, SET_BACK_X, SET_BACK_Y, SET_BACK_W, SET_ROW_H)) {
             TouchDriver::waitForRelease();
             currentScreen = SCREEN_PROFILES;
@@ -1077,6 +1163,19 @@ void DisplayUI::handleTouch(int16_t tx, int16_t ty) {
         } else return;
         drawSettingValues(gfx);                  // solo cambian los números
         TouchDriver::waitForRelease();
+        return;
+    }
+
+    if (currentScreen == SCREEN_WEB) {
+        if (inBox(tx, ty, WEB_BACK_X, WEB_BACK_Y, WEB_BACK_W, WEB_BACK_H)) {
+            TouchDriver::waitForRelease();
+            currentScreen = SCREEN_SETTINGS;
+            drawSettingsScreen();
+        } else if (WebSettings::running() && ty >= WEB_QR_TOP && ty <= WEB_QR_TOP + WEB_QR_MAX) {
+            TouchDriver::waitForRelease();
+            webShowIp = !webShowIp;
+            drawWebScreen();
+        }
         return;
     }
 

@@ -8,6 +8,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <NetworkClientSecure.h>
+#include <Preferences.h>
 
 // --- CÓMO VA UNA PREGUNTA (pensado para que responda lo antes posible) ---
 // Hay dos hilos que trabajan a la vez y nunca se esperan entre sí:
@@ -74,6 +75,47 @@ static String alarmsText() {
 // Órdenes que manda n8n cuando JARVIS usa una herramienta del reloj, separadas por ";":
 // "ALARMA 07:00" (poner), "BORRAR 07:00", "TIMER 600" (segundos, arranca ya),
 // "CRONO INICIAR" / "CRONO PAUSAR" / "CRONO RESET".
+// --- HISTORIAL ---
+// Las últimas HISTORY_MAX charlas, en la NVS como un solo bloque (~8 KB). Se carga la
+// primera vez que se pide.
+static const int HISTORY_MAX = 12;
+static Jarvis::Talk* talks = nullptr;      // en la PSRAM; talks[0] = la más nueva
+static int talkCount = 0;
+
+static void loadHistory() {
+    if (talks) return;
+    talks = (Jarvis::Talk*)heap_caps_calloc(HISTORY_MAX, sizeof(Jarvis::Talk), MALLOC_CAP_SPIRAM);
+    if (!talks) return;
+    Preferences p;
+    p.begin("jarvis", true);
+    size_t len = p.getBytesLength("historial");
+    if (len > 0 && len <= HISTORY_MAX * sizeof(Jarvis::Talk) && len % sizeof(Jarvis::Talk) == 0) {
+        p.getBytes("historial", talks, len);
+        talkCount = len / sizeof(Jarvis::Talk);
+    }
+    p.end();
+}
+
+static void remember() {
+    loadHistory();
+    if (!talks) return;
+    memmove(&talks[1], &talks[0], (HISTORY_MAX - 1) * sizeof(Jarvis::Talk));
+    Jarvis::Talk& t = talks[0];
+    memset(&t, 0, sizeof(t));
+    t.when = time(nullptr);
+    strlcpy(t.question, questionText, sizeof(t.question));
+    strlcpy(t.answer, answerText, sizeof(t.answer));
+    strlcpy(t.actions, actionsText.c_str(), sizeof(t.actions));
+    if (talkCount < HISTORY_MAX) talkCount++;
+    Preferences p;
+    p.begin("jarvis", false);
+    p.putBytes("historial", talks, talkCount * sizeof(Jarvis::Talk));
+    p.end();
+}
+
+int Jarvis::historyCount() { loadHistory(); return talkCount; }
+const Jarvis::Talk& Jarvis::history(int i) { return talks[i]; }
+
 static void runActions(const String& actions) {
     int start = 0;
     while (start < (int)actions.length()) {
@@ -328,6 +370,7 @@ Jarvis::Result Jarvis::ask(const char* profile, bool (*keepRecording)(),
     }
     Serial.printf("[jarvis] \"%s\" -> \"%s\" [%s]\n", questionText, answerText, actionsText.c_str());
     runActions(actionsText);
+    remember();
     onAnswer();
 
     // Voz: arranca con un colchón chico y sigue mientras netTask baja el resto.
