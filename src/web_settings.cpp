@@ -209,10 +209,13 @@ static void fetchTask(void* arg) {
     NetworkClientSecure c;
     c.setInsecure();                        // como JARVIS: lo protege la clave
     c.setTimeout(15);
+    // Sin esto el saludo TLS puede esperar 120 s por intento (por defecto) y la página queda
+    // "cargando" varios minutos: mejor fallar rápido y que la página vuelva a pedir.
+    c.setHandshakeTimeout(10);
     int code = -1;
     String body;
-    bool ok = c.connect(host.c_str(), 443);
-    if (!ok) { vTaskDelay(pdMS_TO_TICKS(300)); ok = c.connect(host.c_str(), 443); }
+    bool ok = c.connect(host.c_str(), 443, 10000);
+    if (!ok) { vTaskDelay(pdMS_TO_TICKS(300)); ok = c.connect(host.c_str(), 443, 10000); }
     if (ok) {
         c.print(String("GET ") + path + " HTTP/1.0\r\nHost: " + host +
                 "\r\nX-Jarvis-Clave: " + JARVIS_KEY +
