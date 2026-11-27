@@ -177,6 +177,9 @@ void WiFiPortal::initSaved() {
 #ifndef TEST_ONLY_HOTSPOT
     addNetwork(savedSSID, savedPASS);                  // la última configurada desde el portal
     addNetwork(MY_WIFI_SSID, MY_WIFI_PASSWORD);        // la de casa
+#ifdef HAS_GYM_WIFI
+    addNetwork(SECRET_GYM_SSID, SECRET_GYM_PASS);      // la del gimnasio
+#endif
 #endif
 #ifdef HAS_HOTSPOT
     addNetwork(HOTSPOT_SSID, HOTSPOT_PASS);            // el hotspot del celular

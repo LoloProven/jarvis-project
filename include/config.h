@@ -21,6 +21,11 @@ static const char* const WIFI_PASS = SECRET_WIFI_PASS;
 #define HOTSPOT_PASS SECRET_HOTSPOT_PASS
 #endif
 
+// WiFi del gimnasio (opcional, en secrets.h: SECRET_GYM_SSID y SECRET_GYM_PASS).
+#if defined(SECRET_GYM_SSID) && defined(SECRET_GYM_PASS)
+#define HAS_GYM_WIFI 1
+#endif
+
 // --- ALIAS de nombres de pines viejos -> nuevos (pin_config.h) ---
 #define LCD_D0  LCD_SDIO0
 #define LCD_D1  LCD_SDIO1
